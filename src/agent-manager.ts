@@ -124,6 +124,8 @@ export class AgentManager {
       thinkingLevel: options.thinkingLevel,
       systemPromptOverride: options.systemPromptOverride,
       systemPromptAppend: options.systemPromptAppend,
+      agentId: id,
+      agentDescription: options.description,
       signal: record.abortController!.signal,
       onToolActivity: (activity) => {
         if (activity.type === "end") record.toolUses++;

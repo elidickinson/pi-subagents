@@ -13,6 +13,8 @@ import type { AgentConfig, EnvInfo } from "./types.js";
 export function buildAgentPrompt(config: AgentConfig, cwd: string, env: EnvInfo): string {
   const commonHeader = `You are a pi coding agent sub-agent.
 You have been invoked to handle a specific task autonomously.
+You can use the send_message tool to notify the parent agent (fire-and-forget).
+If the parent replies, it arrives as a new user message in your conversation.
 
 # Environment
 Working directory: ${cwd}

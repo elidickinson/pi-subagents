@@ -13,6 +13,7 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { Model } from "@mariozechner/pi-ai";
+import { Type } from "@sinclair/typebox";
 import { getToolsForType, getConfig, getAgentConfig } from "./agent-types.js";
 import { buildAgentPrompt } from "./prompts.js";
 import { buildParentContext, extractText } from "./context.js";
@@ -93,6 +94,10 @@ export interface RunOptions {
   /** Called on streaming text deltas from the assistant response. */
   onTextDelta?: (delta: string, fullText: string) => void;
   onSessionCreated?: (session: AgentSession) => void;
+  /** Agent ID — enables send_message tool when set. */
+  agentId?: string;
+  /** Agent description — used in send_message attribution. */
+  agentDescription?: string;
 }
 
 export interface RunResult {
@@ -196,6 +201,31 @@ Do what has been asked; nothing more, nothing less.
   }
 
   const tools = getToolsForType(type, ctx.cwd);
+
+  // Inject send_message tool for parent-child messaging
+  if (options.pi && options.agentId) {
+    const agentId = options.agentId;
+    const agentLabel = `${type} (${options.agentDescription ?? agentId})`;
+
+    tools.push({
+      name: "send_message",
+      label: "Send Message",
+      description: "Send a fire-and-forget message to the parent agent. " +
+        "The parent sees your message but you will NOT receive a response through this tool. " +
+        "If the parent needs to reply, it will steer you with a new message (appears as a user message in your conversation). " +
+        "Use for: status updates, early findings, flagging blockers. Do not use excessively.",
+      parameters: Type.Object({
+        message: Type.String({ description: "The message to send to the parent." }),
+      }),
+      execute: async (_id: string, params: { message: string }) => {
+        options.pi.sendUserMessage(
+          `Message from agent ${agentId} (${agentLabel}):\n\n${params.message}`,
+          { deliverAs: "followUp" },
+        );
+        return { content: [{ type: "text" as const, text: "Message sent to parent." }], details: {} };
+      },
+    });
+  }
 
   // Resolve extensions/skills: isolated overrides to false
   const extensions = options.isolated ? false : config.extensions;
