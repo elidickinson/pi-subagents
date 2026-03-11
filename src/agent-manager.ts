@@ -129,6 +129,7 @@ export class AgentManager {
       systemPromptAppend: options.systemPromptAppend,
       agentId: id,
       agentDescription: options.description,
+      isResultConsumed: () => !!record.resultConsumed,
       signal: record.abortController!.signal,
       onToolActivity: (activity) => {
         if (activity.type === "end") record.toolUses++;

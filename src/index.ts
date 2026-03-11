@@ -744,8 +744,11 @@ Guidelines:
         return textResult(`Agent not found: "${params.agent_id}". It may have been cleaned up.`);
       }
 
-      // Wait for completion if requested
+      // Mark consumed BEFORE awaiting so the completion callback (which fires
+      // synchronously inside the promise's .then()) sees the flag and suppresses
+      // the group-join / individual nudge notification.
       if (params.wait && (record.status === "running" || record.status === "queued") && record.promise) {
+        record.resultConsumed = true;
         await record.promise;
       }
 

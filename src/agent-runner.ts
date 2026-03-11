@@ -98,6 +98,9 @@ export interface RunOptions {
   agentId?: string;
   /** Agent description — used in send_message attribution. */
   agentDescription?: string;
+  /** If provided, send_message checks this before delivering. Suppresses stale
+   *  messages when the parent has already consumed results via get_subagent_result. */
+  isResultConsumed?: () => boolean;
 }
 
 export interface RunResult {
@@ -219,6 +222,11 @@ Do what has been asked; nothing more, nothing less.
         message: Type.String({ description: "The message to send to the parent." }),
       }),
       execute: async (_id: string, params: { message: string }) => {
+        // Skip delivery if the parent already consumed this agent's result —
+        // the message would just be stale noise at that point.
+        if (options.isResultConsumed?.()) {
+          return { content: [{ type: "text" as const, text: "Message suppressed (parent already has results)." }], details: {} };
+        }
         options.pi.sendUserMessage(
           `Message from agent ${agentId} (${agentLabel}):\n\n${params.message}`,
           { deliverAs: "followUp" },
