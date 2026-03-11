@@ -57,6 +57,8 @@ export interface AgentRecord {
   session?: AgentSession;
   abortController?: AbortController;
   promise?: Promise<string>;
+  /** Internal: resolves the deferred promise for queued agents. */
+  _resolveDeferred?: (v: string) => void;
   groupId?: string;
   joinMode?: JoinMode;
   /** Set when result was already consumed via get_subagent_result — suppresses completion notification. */

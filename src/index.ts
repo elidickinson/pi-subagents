@@ -745,7 +745,7 @@ Guidelines:
       }
 
       // Wait for completion if requested
-      if (params.wait && record.status === "running" && record.promise) {
+      if (params.wait && (record.status === "running" || record.status === "queued") && record.promise) {
         await record.promise;
       }
 

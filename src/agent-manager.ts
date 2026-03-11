@@ -100,7 +100,10 @@ export class AgentManager {
     const args: SpawnArgs = { pi, ctx, type, prompt, options };
 
     if (options.isBackground && this.runningBackground >= this.maxConcurrent) {
-      // Queue it — will be started when a running agent completes
+      // Create a deferred promise so callers can await queued agents
+      let resolveDeferred!: (v: string) => void;
+      record.promise = new Promise(r => { resolveDeferred = r; });
+      record._resolveDeferred = resolveDeferred;
       this.queue.push({ id, args });
       return id;
     }
@@ -167,6 +170,12 @@ export class AgentManager {
         return "";
       });
 
+    // If spawned from queue, resolve the deferred promise when the real one settles
+    const resolveDeferred = record._resolveDeferred;
+    if (resolveDeferred) {
+      promise.then(resolveDeferred);
+      delete record._resolveDeferred;
+    }
     record.promise = promise;
   }
 
