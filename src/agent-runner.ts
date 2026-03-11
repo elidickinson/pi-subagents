@@ -202,12 +202,13 @@ Do what has been asked; nothing more, nothing less.
 
   const tools = getToolsForType(type, ctx.cwd);
 
-  // Inject send_message tool for parent-child messaging
+  // Build send_message as a custom tool (injected via customTools, not the builtin tools array)
+  const customTools: typeof tools = [];
   if (options.pi && options.agentId) {
     const agentId = options.agentId;
     const agentLabel = `${type} (${options.agentDescription ?? agentId})`;
 
-    tools.push({
+    customTools.push({
       name: "send_message",
       label: "Send Message",
       description: "Send a fire-and-forget message to the parent agent. " +
@@ -257,6 +258,7 @@ Do what has been asked; nothing more, nothing less.
     modelRegistry: ctx.modelRegistry,
     model,
     tools,
+    customTools,
     resourceLoader: loader,
   };
   if (thinkingLevel) {
