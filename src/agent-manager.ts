@@ -6,7 +6,6 @@
  * Foreground agents bypass the queue (they block the parent anyway).
  */
 
-import { randomUUID } from "node:crypto";
 import type { ExtensionContext, ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type { Model } from "@mariozechner/pi-ai";
 import type { AgentSession } from "@mariozechner/pi-coding-agent";
@@ -49,6 +48,7 @@ export class AgentManager {
   private cleanupInterval: ReturnType<typeof setInterval>;
   private onComplete?: OnAgentComplete;
   private maxConcurrent: number;
+  private nextId = 1;
 
   /** Queue of background agents waiting to start. */
   private queue: { id: string; args: SpawnArgs }[] = [];
@@ -84,7 +84,7 @@ export class AgentManager {
     prompt: string,
     options: SpawnOptions,
   ): string {
-    const id = randomUUID().slice(0, 17);
+    const id = String(this.nextId++);
     const abortController = new AbortController();
     const record: AgentRecord = {
       id,
