@@ -215,9 +215,8 @@ Do what has been asked; nothing more, nothing less.
       name: "send_message",
       label: "Send Message",
       description: "Send a fire-and-forget message to the parent agent. " +
-        "The parent sees your message but you will NOT receive a response through this tool. " +
-        "If the parent needs to reply, it will steer you with a new message (appears as a user message in your conversation). " +
-        "Use for: status updates, early findings, flagging blockers. Do not use excessively.",
+        "No reply comes through this tool — if the parent responds, it arrives as a user message. " +
+        "Use for status updates, early findings, or flagging blockers.",
       parameters: Type.Object({
         message: Type.String({ description: "The message to send to the parent." }),
       }),

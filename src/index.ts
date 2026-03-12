@@ -316,8 +316,6 @@ export default function (pi: ExtensionAPI) {
       "Default agents:",
       ...defaultDescs,
       ...(customDescs.length > 0 ? ["", "Custom agents:", ...customDescs] : []),
-      "",
-      "Custom agents can be defined in .pi/agents/<name>.md (project) or ~/.pi/agent/agents/<name>.md (global) — they are picked up automatically. Project-level agents override global ones. Creating a .md file with the same name as a default agent overrides it.",
     ].join("\n");
   };
 
@@ -336,28 +334,16 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool<any, AgentDetails>({
     name: "Agent",
     label: "Agent",
-    description: `Launch a new agent to handle complex, multi-step tasks autonomously.
-
-The Agent tool launches specialized agents that autonomously handle complex tasks. Each agent type has specific capabilities and tools available to it.
+    description: `Spawn an autonomous subagent to handle a task. The subagent runs as an independent agent session with its own tools and context.
 
 Available agent types:
 ${typeListText}
 
 Guidelines:
-- For parallel work, use run_in_background: true on each agent. Foreground calls run sequentially — only one executes at a time.
-- Use Explore for codebase searches and code understanding.
-- Use Plan for architecture and implementation planning.
-- Use general-purpose for complex tasks that need file editing.
-- Provide clear, detailed prompts so the agent can work autonomously.
-- Agent results are returned as text — summarize them for the user.
-- Use run_in_background for work you don't need immediately. You will be notified when it completes.
-- Use resume with an agent ID to continue a previous agent's work.
-- Use steer_subagent to send mid-run messages to a running background agent.
-- Running agents may send you messages via send_message (delivered as followUp notifications). You can respond by using steer_subagent.
-- Use model to specify a different model (as "provider/modelId", or fuzzy e.g. "haiku", "sonnet").
-- Use thinking to control extended thinking level.
-- Use inherit_context if the agent needs the parent conversation history.
-- Use join_mode to control how background completion notifications are delivered. By default (smart), 2+ background agents spawned in the same turn are grouped into a single notification. Use "async" for individual notifications or "group" to force grouping.`,
+- Foreground agents run one at a time. Use run_in_background for parallel work.
+- Use Explore for codebase search, Plan for architecture, general-purpose for complex tasks or ones needing file edits.
+- Provide clear, detailed prompts — the subagent works autonomously.
+- Subagents may send you messages (delivered as followUp). Respond via steer_subagent.`,
     parameters: Type.Object({
       prompt: Type.String({
         description: "The task for the agent to perform.",
@@ -365,18 +351,20 @@ Guidelines:
       description: Type.String({
         description: "A short (3-5 word) description of the task (shown in UI).",
       }),
-      subagent_type: Type.String({
-        description: `The type of specialized agent to use. Available types: ${getAvailableTypes().join(", ")}. Custom agents from .pi/agents/*.md (project) or ~/.pi/agent/agents/*.md (global) are also available.`,
-      }),
+      subagent_type: Type.Optional(
+        Type.String({
+          description: `Agent type. Default: "general-purpose". See available types above.`,
+        }),
+      ),
       model: Type.Optional(
         Type.String({
           description:
-            'Optional model override. Accepts "provider/modelId" or fuzzy name (e.g. "haiku", "sonnet"). Omit to use the agent type\'s default.',
+            'Model override ("provider/modelId" or fuzzy e.g. "haiku", "sonnet"). Omit to use agent type\'s default.',
         }),
       ),
       thinking: Type.Optional(
         Type.String({
-          description: "Thinking level: off, minimal, low, medium, high, xhigh. Overrides agent default.",
+          description: "Thinking level: off, minimal, low, medium, high, xhigh. Omit to use agent's default.",
         }),
       ),
       max_turns: Type.Optional(
@@ -387,29 +375,29 @@ Guidelines:
       ),
       run_in_background: Type.Optional(
         Type.Boolean({
-          description: "Set to true to run in background. Returns agent ID immediately. You will be notified on completion.",
+          description: "Run in background. Returns agent ID immediately; you're notified on completion.",
         }),
       ),
       resume: Type.Optional(
         Type.String({
-          description: "Optional agent ID to resume from. Continues from previous context.",
+          description: "Agent ID to resume. Continues from previous context.",
         }),
       ),
       isolated: Type.Optional(
         Type.Boolean({
-          description: "If true, agent gets no extension/MCP tools — only built-in tools.",
+          description: "Restrict to built-in tools only (no extensions/MCP).",
         }),
       ),
       inherit_context: Type.Optional(
         Type.Boolean({
-          description: "If true, fork parent conversation into the agent. Default: false (fresh context).",
+          description: "Fork parent conversation into the subagent (default: fresh context).",
         }),
       ),
       join_mode: Type.Optional(
         Type.Union([
           Type.Literal("async"),
           Type.Literal("group"),
-        ], { description: "Override join behavior for background agents. async: individual nudge on completion. group: hold and send one consolidated notification when all agents in the group complete. Default: smart (auto-groups 2+ background agents spawned in the same turn)." }),
+        ], { description: 'Background completion notification style. "async": individual per agent. "group": one notification when all complete. Default: auto-groups 2+ agents from same turn.' }),
       ),
     }),
 
@@ -791,8 +779,7 @@ Guidelines:
     name: "steer_subagent",
     label: "Steer Agent",
     description:
-      "Send a steering message to a running agent. The message will interrupt the agent after its current tool execution " +
-      "and be injected into its conversation, allowing you to redirect its work mid-run. Only works on running agents.",
+      "Send a message to a running subagent. Appears as a user message in its conversation. Only works on running agents.",
     parameters: Type.Object({
       agent_id: Type.String({
         description: "The agent ID to steer (must be currently running).",
