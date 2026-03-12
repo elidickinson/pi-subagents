@@ -58,7 +58,7 @@ export class AgentManager {
   constructor(onComplete?: OnAgentComplete, maxConcurrent = DEFAULT_MAX_CONCURRENT) {
     this.onComplete = onComplete;
     this.maxConcurrent = maxConcurrent;
-    // Cleanup completed agents after 10 minutes (but keep sessions for resume)
+    // Cleanup completed agents after 1 hour (but keep sessions for resume)
     this.cleanupInterval = setInterval(() => this.cleanup(), 60_000);
   }
 
@@ -273,7 +273,7 @@ export class AgentManager {
   }
 
   private cleanup() {
-    const cutoff = Date.now() - 10 * 60_000;
+    const cutoff = Date.now() - 60 * 60_000;
     for (const [id, record] of this.agents) {
       if (record.status === "running" || record.status === "queued") continue;
       if ((record.completedAt ?? 0) >= cutoff) continue;
