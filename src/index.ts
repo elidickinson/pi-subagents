@@ -30,6 +30,7 @@ import {
   formatMs,
   formatDuration,
   getDisplayName,
+  getPromptModeLabel,
   describeActivity,
   type AgentDetails,
   type AgentActivity,
@@ -120,20 +121,6 @@ function buildDetails(
   };
 }
 
-/** Resolve system prompt overrides from an agent config. */
-function resolveCustomPrompt(config: AgentConfig | undefined): {
-  systemPromptOverride?: string;
-  systemPromptAppend?: string;
-} {
-  if (!config?.systemPrompt) return {};
-  // Default agents use their systemPrompt via buildAgentPrompt in agent-runner,
-  // not via override/append. Only non-default agents use this path.
-  if (config.isDefault) return {};
-  if (config.promptMode === "append") return { systemPromptAppend: config.systemPrompt };
-  return { systemPromptOverride: config.systemPrompt };
-}
-
-
 export default function (pi: ExtensionAPI) {
   /** Reload agents from .pi/agents/*.md and merge with defaults (called on init and each Agent invocation). */
   const reloadCustomAgents = () => {
@@ -161,9 +148,11 @@ export default function (pi: ExtensionAPI) {
     agentActivity.delete(record.id);
     widget.markFinished(record.id);
 
+    const tokens = safeFormatTokens(record.session);
+    const toolStats = tokens ? `Tool uses: ${record.toolUses} | ${tokens}` : `Tool uses: ${record.toolUses}`;
     pi.sendUserMessage(
       `Background agent completed: ${displayName} (${record.description})\n` +
-      `Agent ID: ${record.id} | Status: ${status} | Tool uses: ${record.toolUses} | Duration: ${duration}\n\n` +
+      `Agent ID: ${record.id} | Status: ${status} | ${toolStats} | Duration: ${duration}\n\n` +
       resultPreview,
       { deliverAs: "followUp" },
     );
@@ -180,7 +169,9 @@ export default function (pi: ExtensionAPI) {
         ? record.result.slice(0, 300) + "\n...(truncated)"
         : record.result
       : "No output.";
-    return `- ${displayName} (${record.description})\n  ID: ${record.id} | Status: ${status} | Tools: ${record.toolUses} | Duration: ${duration}\n  ${resultPreview}`;
+    const tokens = safeFormatTokens(record.session);
+    const toolStats = tokens ? `Tools: ${record.toolUses} | ${tokens}` : `Tools: ${record.toolUses}`;
+    return `- ${displayName} (${record.description})\n  ID: ${record.id} | Status: ${status} | ${toolStats} | Duration: ${duration}\n  ${resultPreview}`;
   }
 
   // ---- Group join manager ----
@@ -213,8 +204,44 @@ export default function (pi: ExtensionAPI) {
     30_000,
   );
 
+  /** Helper: build event data for lifecycle events from an AgentRecord. */
+  function buildEventData(record: AgentRecord) {
+    const durationMs = record.completedAt ? record.completedAt - record.startedAt : Date.now() - record.startedAt;
+    let tokens: { input: number; output: number; total: number } | undefined;
+    try {
+      if (record.session) {
+        const stats = record.session.getSessionStats();
+        tokens = {
+          input: stats.tokens?.input ?? 0,
+          output: stats.tokens?.output ?? 0,
+          total: stats.tokens?.total ?? 0,
+        };
+      }
+    } catch { /* session stats unavailable */ }
+    return {
+      id: record.id,
+      type: record.type,
+      description: record.description,
+      result: record.result,
+      error: record.error,
+      status: record.status,
+      toolUses: record.toolUses,
+      durationMs,
+      tokens,
+    };
+  }
+
   // Background completion: route through group join or send individual nudge
   const manager = new AgentManager((record) => {
+    // Emit lifecycle event based on terminal status
+    const isError = record.status === "error" || record.status === "stopped" || record.status === "aborted";
+    const eventData = buildEventData(record);
+    if (isError) {
+      pi.events.emit("subagents:failed", eventData);
+    } else {
+      pi.events.emit("subagents:completed", eventData);
+    }
+
     // Skip notification if result was already consumed via get_subagent_result
     if (record.resultConsumed) {
       agentActivity.delete(record.id);
@@ -237,6 +264,31 @@ export default function (pi: ExtensionAPI) {
     // 'held' → do nothing, group will fire later
     // 'delivered' → group callback already fired
     widget.update();
+  }, undefined, (record) => {
+    // Emit started event when agent transitions to running (including from queue)
+    pi.events.emit("subagents:started", {
+      id: record.id,
+      type: record.type,
+      description: record.description,
+    });
+  });
+
+  // Expose manager via Symbol.for() global registry for cross-package access.
+  // Standard Node.js pattern for cross-package singletons (used by OpenTelemetry, etc.).
+  const MANAGER_KEY = Symbol.for("pi-subagents:manager");
+  (globalThis as any)[MANAGER_KEY] = {
+    waitForAll: () => manager.waitForAll(),
+    hasRunning: () => manager.hasRunning(),
+    spawn: (piRef: any, ctx: any, type: string, prompt: string, options: any) =>
+      manager.spawn(piRef, ctx, type, prompt, options),
+    getRecord: (id: string) => manager.getRecord(id),
+  };
+
+  // Wait for all subagents on shutdown, then dispose the manager
+  pi.on("session_shutdown", async () => {
+    delete (globalThis as any)[MANAGER_KEY];
+    await manager.waitForAll();
+    manager.dispose();
   });
 
   // Live widget: show running agents above editor
@@ -329,6 +381,12 @@ export default function (pi: ExtensionAPI) {
 
   const typeListText = buildTypeListText();
 
+  /** Format agent ID + description for renderCall display. */
+  const agentLabel = (id: string) => {
+    const r = manager.getRecord(id);
+    return `#${id}` + (r ? "  " + r.description : "");
+  };
+
   // ---- Agent tool ----
 
   pi.registerTool<any, AgentDetails>({
@@ -404,9 +462,15 @@ Guidelines:
     // ---- Custom rendering: Claude Code style ----
 
     renderCall(args, theme) {
-      const displayName = args.subagent_type ? getDisplayName(args.subagent_type) : "Agent";
+      let displayName = args.subagent_type ? getDisplayName(args.subagent_type) : "Agent";
+      if (args.resume) displayName += ` (resume #${args.resume})`;
       const desc = args.description ?? "";
-      return new Text("▸ " + theme.fg("toolTitle", theme.bold(displayName)) + (desc ? "  " + theme.fg("muted", desc) : ""), 0, 0);
+      const tags: string[] = [];
+      if (args.model) tags.push(args.model);
+      if (args.run_in_background) tags.push("bg");
+      if (args.thinking_level) tags.push(`thinking: ${args.thinking_level}`);
+      const suffix = tags.length ? " · " + tags.map(t => theme.fg("dim", t)).join(" " + theme.fg("dim", "·") + " ") : "";
+      return new Text("▸ " + theme.fg("toolTitle", theme.bold(displayName)) + (desc ? "  " + theme.fg("muted", desc) : "") + suffix, 0, 0);
     },
 
     renderResult(result, { expanded, isPartial }, theme) {
@@ -528,8 +592,6 @@ Guidelines:
       const runInBackground = params.run_in_background ?? customConfig?.runInBackground ?? false;
       const isolated = params.isolated ?? customConfig?.isolated ?? false;
 
-      const { systemPromptOverride, systemPromptAppend } = resolveCustomPrompt(customConfig);
-
       // Build display tags for non-default config
       const parentModelId = ctx.model?.id;
       const effectiveModelId = model?.id;
@@ -537,6 +599,8 @@ Guidelines:
         ? (model?.name ?? effectiveModelId).replace(/^Claude\s+/i, "").toLowerCase()
         : undefined;
       const agentTags: string[] = [];
+      const modeLabel = getPromptModeLabel(subagentType);
+      if (modeLabel) agentTags.push(modeLabel);
       if (thinking) agentTags.push(`thinking: ${thinking}`);
       if (isolated) agentTags.push("isolated");
       // Shared base fields for all AgentDetails in this call
@@ -578,8 +642,6 @@ Guidelines:
           isolated,
           inheritContext,
           thinkingLevel: thinking,
-          systemPromptOverride,
-          systemPromptAppend,
           isBackground: true,
           ...bgCallbacks,
         });
@@ -603,6 +665,15 @@ Guidelines:
         agentActivity.set(id, bgState);
         widget.ensureTimer();
         widget.update();
+
+        // Emit created event
+        pi.events.emit("subagents:created", {
+          id,
+          type: subagentType,
+          description: params.description,
+          isBackground: true,
+        });
+
         const isQueued = record?.status === "queued";
         return textResult(
           `Agent ${isQueued ? "queued" : "started"} in background.\n` +
@@ -669,8 +740,6 @@ Guidelines:
         isolated,
         inheritContext,
         thinkingLevel: thinking,
-        systemPromptOverride,
-        systemPromptAppend,
         ...fgCallbacks,
       });
 
@@ -696,8 +765,10 @@ Guidelines:
       }
 
       const durationMs = (record.completedAt ?? Date.now()) - record.startedAt;
+      const statsParts = [`${record.toolUses} tool uses`];
+      if (tokenText) statsParts.push(tokenText);
       return textResult(
-        `${fallbackNote}Agent completed in ${formatMs(durationMs)} (${record.toolUses} tool uses)${getStatusNote(record.status)}.\n\n` +
+        `${fallbackNote}Agent completed in ${formatMs(durationMs)} (${statsParts.join(", ")})${getStatusNote(record.status)}.\n\n` +
         (record.result ?? "No output."),
         details,
       );
@@ -706,7 +777,7 @@ Guidelines:
 
   // ---- get_subagent_result tool ----
 
-  pi.registerTool({
+  pi.registerTool<any, { agentId: string; displayName: string; status: string; durationMs: number; toolUses: number }>({
     name: "get_subagent_result",
     label: "Get Agent Result",
     description:
@@ -726,6 +797,58 @@ Guidelines:
         }),
       ),
     }),
+
+    renderCall(args, theme) {
+      const label = agentLabel(args.agent_id);
+      const tags: string[] = [];
+      if (args.wait) tags.push("wait");
+      const suffix = tags.length ? " · " + theme.fg("dim", tags.join(" · ")) : "";
+      return new Text("▸ " + theme.fg("toolTitle", theme.bold("Get Agent Result")) + "  " + theme.fg("muted", label) + suffix, 0, 0);
+    },
+
+    renderResult(result, { expanded }, theme) {
+      const d = result.details as { agentId: string; displayName: string; status: string; durationMs: number; toolUses: number } | undefined;
+      if (!d) {
+        const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+        return new Text(text, 0, 0);
+      }
+
+      const statusIcons: Record<string, string> = {
+        completed: theme.fg("success", "✓"),
+        running: theme.fg("accent", SPINNER[0]),
+        error: theme.fg("error", "✗"),
+        aborted: theme.fg("warning", "✗"),
+        steered: theme.fg("warning", "✓"),
+        stopped: theme.fg("dim", "■"),
+        queued: theme.fg("dim", "…"),
+      };
+      const icon = statusIcons[d.status] ?? theme.fg("dim", "?");
+      const duration = formatMs(d.durationMs);
+      let line = icon + " " + theme.fg("dim", d.displayName) + " " + theme.fg("dim", "·") + " " + theme.fg("dim", d.status) + " " + theme.fg("dim", "·") + " " + theme.fg("dim", duration);
+
+      const resultText = result.content[0]?.type === "text" ? result.content[0].text : "";
+      if (expanded) {
+        // Show full result (up to 50 lines) + tool uses count
+        if (resultText) {
+          const lines = resultText.split("\n").slice(0, 50);
+          for (const l of lines) line += "\n" + theme.fg("dim", `  ${l}`);
+          if (resultText.split("\n").length > 50) line += "\n" + theme.fg("muted", "  ... (truncated)");
+        }
+        if (d.toolUses > 0) line += "\n" + theme.fg("dim", `  ${d.toolUses} tool use${d.toolUses === 1 ? "" : "s"}`);
+      } else {
+        // Collapsed: first line + ... + last 2 lines (if > 3 lines)
+        const allLines = resultText.split("\n").filter(l => l.trim());
+        if (allLines.length <= 3) {
+          for (const l of allLines) line += "\n" + theme.fg("dim", `  ⎿  ${l.slice(0, 120)}`);
+        } else {
+          line += "\n" + theme.fg("dim", `  ⎿  ${allLines[0].slice(0, 120)}...`);
+          for (const l of allLines.slice(-2)) line += "\n" + theme.fg("dim", `     ${l.slice(0, 120)}`);
+        }
+      }
+
+      return new Text(line, 0, 0);
+    },
+
     execute: async (_toolCallId, params, _signal, _onUpdate, _ctx) => {
       const record = manager.getRecord(params.agent_id);
       if (!record) {
@@ -742,10 +865,12 @@ Guidelines:
 
       const displayName = getDisplayName(record.type);
       const duration = formatDuration(record.startedAt, record.completedAt);
+      const tokens = safeFormatTokens(record.session);
+      const toolStats = tokens ? `Tool uses: ${record.toolUses} | ${tokens}` : `Tool uses: ${record.toolUses}`;
 
       let output =
         `Agent: ${record.id}\n` +
-        `Type: ${displayName} | Status: ${record.status} | Tool uses: ${record.toolUses} | Duration: ${duration}\n` +
+        `Type: ${displayName} | Status: ${record.status} | ${toolStats} | Duration: ${duration}\n` +
         `Description: ${record.description}\n\n`;
 
       if (record.status === "running") {
@@ -769,7 +894,14 @@ Guidelines:
         }
       }
 
-      return textResult(output);
+      const durationMs = (record.completedAt ?? Date.now()) - record.startedAt;
+      return textResult(output, {
+        agentId: record.id,
+        displayName,
+        status: record.status,
+        durationMs,
+        toolUses: record.toolUses,
+      } as any);
     },
   });
 
@@ -788,6 +920,13 @@ Guidelines:
         description: "The steering message to send. This will appear as a user message in the agent's conversation.",
       }),
     }),
+
+    renderCall(args, theme) {
+      const label = agentLabel(args.agent_id);
+      const msgPreview = args.message?.length > 60 ? args.message.slice(0, 57) + "..." : (args.message ?? "");
+      return new Text("▸ " + theme.fg("toolTitle", theme.bold("Steer Agent")) + "  " + theme.fg("muted", label) + " · " + theme.fg("dim", `"${msgPreview}"`), 0, 0);
+    },
+
     execute: async (_toolCallId, params, _signal, _onUpdate, _ctx) => {
       const record = manager.getRecord(params.agent_id);
       if (!record) {
@@ -802,6 +941,7 @@ Guidelines:
 
       try {
         await steerAgent(record.session, params.message);
+        pi.events.emit("subagents:steered", { id: record.id, message: params.message });
         return textResult(`Steering message sent to agent ${record.id}. The agent will process it after its current tool execution.`);
       } catch (err) {
         return textResult(`Failed to steer agent: ${err instanceof Error ? err.message : String(err)}`);

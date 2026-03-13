@@ -8,7 +8,7 @@
 import { matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component, type TUI } from "@mariozechner/pi-tui";
 import type { AgentSession } from "@mariozechner/pi-coding-agent";
 import type { Theme } from "./agent-widget.js";
-import { formatTokens, formatDuration, getDisplayName, describeActivity, type AgentActivity } from "./agent-widget.js";
+import { formatTokens, formatDuration, getDisplayName, getPromptModeLabel, describeActivity, type AgentActivity } from "./agent-widget.js";
 import type { AgentRecord } from "../types.js";
 import { extractText } from "../context.js";
 
@@ -89,6 +89,8 @@ export class ConversationViewer implements Component {
     // Header
     lines.push(hrTop);
     const name = getDisplayName(this.record.type);
+    const modeLabel = getPromptModeLabel(this.record.type);
+    const modeTag = modeLabel ? ` ${th.fg("dim", `(${modeLabel})`)}` : "";
     const statusIcon = this.record.status === "running"
       ? th.fg("accent", "●")
       : this.record.status === "completed"
@@ -109,7 +111,7 @@ export class ConversationViewer implements Component {
     }
 
     lines.push(row(
-      `${statusIcon} ${th.bold(name)}  ${th.fg("muted", this.record.description)} ${th.fg("dim", "·")} ${th.fg("dim", headerParts.join(" · "))}`,
+      `${statusIcon} ${th.bold(name)}${modeTag}  ${th.fg("muted", this.record.description)} ${th.fg("dim", "·")} ${th.fg("dim", headerParts.join(" · "))}`,
     ));
     lines.push(hrMid);
 

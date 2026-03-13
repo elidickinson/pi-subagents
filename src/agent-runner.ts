@@ -85,10 +85,6 @@ export interface RunOptions {
   isolated?: boolean;
   inheritContext?: boolean;
   thinkingLevel?: ThinkingLevel;
-  /** Override system prompt entirely (for custom agents with promptMode: "replace"). */
-  systemPromptOverride?: string;
-  /** Append to default system prompt (for custom agents with promptMode: "append"). */
-  systemPromptAppend?: string;
   /** Called on tool start/end with activity info. */
   onToolActivity?: (activity: ToolActivity) => void;
   /** Called on streaming text deltas from the assistant response. */
@@ -150,57 +146,27 @@ export async function runAgent(
   const agentConfig = getAgentConfig(type);
   const env = await detectEnv(options.pi, ctx.cwd);
 
-  // Build system prompt: custom override > custom append > config-driven
+  // Get parent system prompt for append-mode agents
+  const parentSystemPrompt = ctx.getSystemPrompt();
+
+  // Build system prompt from agent config
   let systemPrompt: string;
-  if (options.systemPromptOverride) {
-    systemPrompt = options.systemPromptOverride;
-  } else if (options.systemPromptAppend) {
-    // Build a default prompt and append to it
-    const defaultConfig = agentConfig ?? {
-      name: type,
-      description: "",
-      builtinToolNames: [],
-      extensions: true,
-      skills: true,
-      systemPrompt: "",
-      promptMode: "replace" as const,
-      inheritContext: false,
-      runInBackground: false,
-      isolated: false,
-    };
-    systemPrompt = buildAgentPrompt(defaultConfig, ctx.cwd, env) + "\n\n" + options.systemPromptAppend;
-  } else if (agentConfig) {
-    systemPrompt = buildAgentPrompt(agentConfig, ctx.cwd, env);
+  if (agentConfig) {
+    systemPrompt = buildAgentPrompt(agentConfig, ctx.cwd, env, parentSystemPrompt);
   } else {
-    // Unknown type — use a minimal general-purpose prompt
+    // Unknown type fallback: general-purpose (defensive — unreachable in practice
+    // since index.ts resolves unknown types to "general-purpose" before calling runAgent)
     systemPrompt = buildAgentPrompt({
       name: type,
       description: "General-purpose agent",
-      builtinToolNames: [],
+      systemPrompt: "",
+      promptMode: "append",
       extensions: true,
       skills: true,
-      systemPrompt: `# Role
-You are a general-purpose coding agent for complex, multi-step tasks.
-You have full access to read, write, edit files, and execute commands.
-Do what has been asked; nothing more, nothing less.
-
-# Tool Usage
-- Use the read tool instead of cat/head/tail
-- Use the edit tool instead of sed/awk
-- Use the write tool instead of echo/heredoc
-- Use the find tool instead of bash find/ls for file search
-- Use the grep tool instead of bash grep/rg for content search
-- Make independent tool calls in parallel
-
-# Output
-- Use absolute file paths
-- Do not use emojis
-- Be concise but complete`,
-      promptMode: "replace",
       inheritContext: false,
       runInBackground: false,
       isolated: false,
-    }, ctx.cwd, env);
+    }, ctx.cwd, env, parentSystemPrompt);
   }
 
   const tools = getToolsForType(type, ctx.cwd);

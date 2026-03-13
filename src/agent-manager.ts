@@ -13,6 +13,7 @@ import { runAgent, resumeAgent, type ToolActivity } from "./agent-runner.js";
 import type { SubagentType, AgentRecord, ThinkingLevel } from "./types.js";
 
 export type OnAgentComplete = (record: AgentRecord) => void;
+export type OnAgentStart = (record: AgentRecord) => void;
 
 /** Default max concurrent background agents. */
 const DEFAULT_MAX_CONCURRENT = 4;
@@ -32,8 +33,6 @@ interface SpawnOptions {
   isolated?: boolean;
   inheritContext?: boolean;
   thinkingLevel?: ThinkingLevel;
-  systemPromptOverride?: string;
-  systemPromptAppend?: string;
   isBackground?: boolean;
   /** Called on tool start/end with activity info (for streaming progress to UI). */
   onToolActivity?: (activity: ToolActivity) => void;
@@ -47,6 +46,7 @@ export class AgentManager {
   private agents = new Map<string, AgentRecord>();
   private cleanupInterval: ReturnType<typeof setInterval>;
   private onComplete?: OnAgentComplete;
+  private onStart?: OnAgentStart;
   private maxConcurrent: number;
   private nextId = 1;
 
@@ -55,8 +55,9 @@ export class AgentManager {
   /** Number of currently running background agents. */
   private runningBackground = 0;
 
-  constructor(onComplete?: OnAgentComplete, maxConcurrent = DEFAULT_MAX_CONCURRENT) {
+  constructor(onComplete?: OnAgentComplete, maxConcurrent = DEFAULT_MAX_CONCURRENT, onStart?: OnAgentStart) {
     this.onComplete = onComplete;
+    this.onStart = onStart;
     this.maxConcurrent = maxConcurrent;
     // Cleanup completed agents after 1 hour (but keep sessions for resume)
     this.cleanupInterval = setInterval(() => this.cleanup(), 60_000);
@@ -117,6 +118,7 @@ export class AgentManager {
     record.status = "running";
     record.startedAt = Date.now();
     if (options.isBackground) this.runningBackground++;
+    this.onStart?.(record);
 
     const promise = runAgent(ctx, type, prompt, {
       pi,
@@ -284,6 +286,28 @@ export class AgentManager {
         record.session = undefined;
       }
       this.agents.delete(id);
+    }
+  }
+
+  /** Whether any agents are still running or queued. */
+  hasRunning(): boolean {
+    return [...this.agents.values()].some(
+      r => r.status === "running" || r.status === "queued",
+    );
+  }
+
+  /** Wait for all running and queued agents to complete (including queued ones). */
+  async waitForAll(): Promise<void> {
+    // Loop because drainQueue respects the concurrency limit — as running
+    // agents finish they start queued ones, which need awaiting too.
+    while (true) {
+      this.drainQueue();
+      const pending = [...this.agents.values()]
+        .filter(r => r.status === "running" || r.status === "queued")
+        .map(r => r.promise)
+        .filter(Boolean);
+      if (pending.length === 0) break;
+      await Promise.allSettled(pending);
     }
   }
 

@@ -12,6 +12,9 @@ import { getConfig } from "../agent-types.js";
 
 // ---- Constants ----
 
+/** Maximum number of rendered lines before overflow collapse kicks in. */
+const MAX_WIDGET_LINES = 12;
+
 /** Braille spinner frames for animated running indicator. */
 export const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -77,11 +80,11 @@ export interface AgentDetails {
 
 // ---- Formatting helpers ----
 
-/** Format a token count as "33.8k tokens" or "1.2M tokens". */
+/** Format a token count compactly: "33.8k token", "1.2M token". */
 export function formatTokens(count: number): string {
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M tokens`;
-  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k tokens`;
-  return `${count} tokens`;
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M token`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k token`;
+  return `${count} token`;
 }
 
 /** Format milliseconds as human-readable duration. */
@@ -98,6 +101,12 @@ export function formatDuration(startedAt: number, completedAt?: number): string 
 /** Get display name for any agent type (built-in or custom). */
 export function getDisplayName(type: SubagentType): string {
   return getConfig(type).displayName;
+}
+
+/** Short label for prompt mode: "twin" for append, nothing for replace (the default). */
+export function getPromptModeLabel(type: SubagentType): string | undefined {
+  const config = getConfig(type);
+  return config.promptMode === "append" ? "twin" : undefined;
 }
 
 /** Truncate text to a single line, max `len` chars. */
@@ -193,6 +202,7 @@ export class AgentWidget {
   /** Render a finished agent line. */
   private renderFinishedLine(a: { type: SubagentType; status: string; description: string; toolUses: number; startedAt: number; completedAt?: number; error?: string }, theme: Theme): string {
     const name = getDisplayName(a.type);
+    const modeLabel = getPromptModeLabel(a.type);
     const duration = formatMs((a.completedAt ?? Date.now()) - a.startedAt);
 
     let icon: string;
@@ -220,7 +230,8 @@ export class AgentWidget {
     if (a.toolUses > 0) parts.push(`${a.toolUses} tool use${a.toolUses === 1 ? "" : "s"}`);
     parts.push(duration);
 
-    return `${icon} ${theme.fg("dim", name)}  ${theme.fg("dim", a.description)} ${theme.fg("dim", "·")} ${theme.fg("dim", parts.join(" · "))}${statusText}`;
+    const modeTag = modeLabel ? ` ${theme.fg("dim", `(${modeLabel})`)}` : "";
+    return `${icon} ${theme.fg("dim", name)}${modeTag}  ${theme.fg("dim", a.description)} ${theme.fg("dim", "·")} ${theme.fg("dim", parts.join(" · "))}${statusText}`;
   }
 
   /** Force an immediate widget update. */
@@ -268,23 +279,20 @@ export class AgentWidget {
       const truncate = (line: string) => truncateToWidth(line, w);
       const headingColor = hasActive ? "accent" : "dim";
       const headingIcon = hasActive ? "●" : "○";
-      const lines: string[] = [truncate(theme.fg(headingColor, headingIcon) + " " + theme.fg(headingColor, "Agents"))];
 
-      // --- Finished agents (shown first, dimmed) ---
-      for (let i = 0; i < finished.length; i++) {
-        const a = finished[i];
-        const isLast = !hasActive && i === finished.length - 1;
-        const connector = isLast ? "└─" : "├─";
-        lines.push(truncate(theme.fg("dim", connector) + " " + this.renderFinishedLine(a, theme)));
+      // Build sections separately for overflow-aware assembly.
+      // Each running agent = 2 lines (header + activity), finished = 1 line, queued = 1 line.
+
+      const finishedLines: string[] = [];
+      for (const a of finished) {
+        finishedLines.push(truncate(theme.fg("dim", "├─") + " " + this.renderFinishedLine(a, theme)));
       }
 
-      // --- Running agents ---
-      const isLastSection = queued.length === 0;
-      for (let i = 0; i < running.length; i++) {
-        const a = running[i];
-        const isLast = isLastSection && i === running.length - 1;
-        const connector = isLast ? "└─" : "├─";
+      const runningLines: string[][] = []; // each entry is [header, activity]
+      for (const a of running) {
         const name = getDisplayName(a.type);
+        const modeLabel = getPromptModeLabel(a.type);
+        const modeTag = modeLabel ? ` ${theme.fg("dim", `(${modeLabel})`)}` : "";
         const elapsed = formatMs(Date.now() - a.startedAt);
 
         const bg = this.agentActivity.get(a.id);
@@ -302,14 +310,82 @@ export class AgentWidget {
 
         const activity = bg ? describeActivity(bg.activeTools, bg.responseText) : "thinking…";
 
-        lines.push(truncate(theme.fg("dim", connector) + ` ${theme.fg("accent", frame)} ${theme.bold(name)}  ${theme.fg("muted", a.description)} ${theme.fg("dim", "·")} ${theme.fg("dim", statsText)}`));
-        const indent = isLast ? "   " : "│  ";
-        lines.push(truncate(theme.fg("dim", indent) + theme.fg("dim", `  ⎿  ${activity}`)));
+        runningLines.push([
+          truncate(theme.fg("dim", "├─") + ` ${theme.fg("accent", frame)} ${theme.bold(name)}${modeTag}  ${theme.fg("muted", a.description)} ${theme.fg("dim", "·")} ${theme.fg("dim", statsText)}`),
+          truncate(theme.fg("dim", "│  ") + theme.fg("dim", `  ⎿  ${activity}`)),
+        ]);
       }
 
-      // --- Queued agents (collapsed) ---
-      if (queued.length > 0) {
-        lines.push(truncate(theme.fg("dim", "└─") + ` ${theme.fg("muted", "◦")} ${theme.fg("dim", `${queued.length} queued`)}`));
+      const queuedLine = queued.length > 0
+        ? truncate(theme.fg("dim", "├─") + ` ${theme.fg("muted", "◦")} ${theme.fg("dim", `${queued.length} queued`)}`)
+        : undefined;
+
+      // Assemble with overflow cap (heading + overflow indicator = 2 reserved lines).
+      const maxBody = MAX_WIDGET_LINES - 1; // heading takes 1 line
+      const totalBody = finishedLines.length + runningLines.length * 2 + (queuedLine ? 1 : 0);
+
+      const lines: string[] = [truncate(theme.fg(headingColor, headingIcon) + " " + theme.fg(headingColor, "Agents"))];
+
+      if (totalBody <= maxBody) {
+        // Everything fits — add all lines and fix up connectors for the last item.
+        lines.push(...finishedLines);
+        for (const pair of runningLines) lines.push(...pair);
+        if (queuedLine) lines.push(queuedLine);
+
+        // Fix last connector: swap ├─ → └─ and │ → space for activity lines.
+        if (lines.length > 1) {
+          const last = lines.length - 1;
+          lines[last] = lines[last].replace("├─", "└─");
+          // If last item is a running agent activity line, fix indent of that line
+          // and fix the header line above it.
+          if (runningLines.length > 0 && !queuedLine) {
+            // The last two lines are the last running agent's header + activity.
+            if (last >= 2) {
+              lines[last - 1] = lines[last - 1].replace("├─", "└─");
+              lines[last] = lines[last].replace("│  ", "   ");
+            }
+          }
+        }
+      } else {
+        // Overflow — prioritize: running > queued > finished.
+        // Reserve 1 line for overflow indicator.
+        let budget = maxBody - 1;
+        let hiddenRunning = 0;
+        let hiddenFinished = 0;
+
+        // 1. Running agents (2 lines each)
+        for (const pair of runningLines) {
+          if (budget >= 2) {
+            lines.push(...pair);
+            budget -= 2;
+          } else {
+            hiddenRunning++;
+          }
+        }
+
+        // 2. Queued line
+        if (queuedLine && budget >= 1) {
+          lines.push(queuedLine);
+          budget--;
+        }
+
+        // 3. Finished agents
+        for (const fl of finishedLines) {
+          if (budget >= 1) {
+            lines.push(fl);
+            budget--;
+          } else {
+            hiddenFinished++;
+          }
+        }
+
+        // Overflow summary
+        const overflowParts: string[] = [];
+        if (hiddenRunning > 0) overflowParts.push(`${hiddenRunning} running`);
+        if (hiddenFinished > 0) overflowParts.push(`${hiddenFinished} finished`);
+        const overflowText = overflowParts.join(", ");
+        lines.push(truncate(theme.fg("dim", "└─") + ` ${theme.fg("dim", `+${hiddenRunning + hiddenFinished} more (${overflowText})`)}`)
+        );
       }
 
       return { render: () => lines, invalidate: () => {} };

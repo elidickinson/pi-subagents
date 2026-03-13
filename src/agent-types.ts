@@ -125,6 +125,7 @@ export function getConfig(type: string): {
   builtinToolNames: string[];
   extensions: true | string[] | false;
   skills: true | string[] | false;
+  promptMode: "replace" | "append";
 } {
   const key = resolveKey(type);
   const config = key ? agents.get(key) : undefined;
@@ -135,6 +136,7 @@ export function getConfig(type: string): {
       builtinToolNames: config.builtinToolNames ?? BUILTIN_TOOL_NAMES,
       extensions: config.extensions,
       skills: config.skills,
+      promptMode: config.promptMode,
     };
   }
 
@@ -147,6 +149,7 @@ export function getConfig(type: string): {
       builtinToolNames: gp.builtinToolNames ?? BUILTIN_TOOL_NAMES,
       extensions: gp.extensions,
       skills: gp.skills,
+      promptMode: gp.promptMode,
     };
   }
 
@@ -157,21 +160,7 @@ export function getConfig(type: string): {
     builtinToolNames: BUILTIN_TOOL_NAMES,
     extensions: true,
     skills: true,
+    promptMode: "append",
   };
 }
 
-// ---- Backwards-compatible aliases ----
-
-/** @deprecated Use registerAgents instead */
-export const registerCustomAgents = registerAgents;
-
-/** @deprecated Use getAgentConfig instead */
-export function getCustomAgentConfig(name: string): AgentConfig | undefined {
-  const key = resolveKey(name);
-  return key ? agents.get(key) : undefined;
-}
-
-/** @deprecated Use getUserAgentNames instead */
-export function getCustomAgentNames(): string[] {
-  return getUserAgentNames();
-}
