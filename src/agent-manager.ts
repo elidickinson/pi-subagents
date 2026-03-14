@@ -127,8 +127,6 @@ export class AgentManager {
       isolated: options.isolated,
       inheritContext: options.inheritContext,
       thinkingLevel: options.thinkingLevel,
-      systemPromptOverride: options.systemPromptOverride,
-      systemPromptAppend: options.systemPromptAppend,
       agentId: id,
       agentDescription: options.description,
       isResultConsumed: () => !!record.resultConsumed,
