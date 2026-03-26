@@ -89,10 +89,10 @@ Completed results can be expanded (ctrl+o in pi) to show the full agent output i
 | Type | Tools | Model | Prompt Mode | Description |
 |------|-------|-------|-------------|-------------|
 | `general-purpose` | all 7 | inherit | `append` (parent twin) | Inherits the parent's full system prompt — same rules, CLAUDE.md, project conventions |
-| `Explore` | read, bash, grep, find, ls | haiku (falls back to inherit) | `replace` (standalone) | Fast codebase exploration (read-only) |
+| `Explore` | read, bash, grep, find, ls | inherit | `replace` (standalone) | Codebase exploration (read-only) |
 | `Plan` | read, bash, grep, find, ls | inherit | `replace` (standalone) | Software architect for implementation planning (read-only) |
 
-The `general-purpose` agent is a **parent twin** — it receives the parent's entire system prompt plus a sub-agent context bridge, so it follows the same rules the parent does. Explore and Plan use standalone prompts tailored to their read-only roles.
+> **Tip:** Since all agents inherit the parent's model by default, consider creating overrides for task-appropriate models. For `Explore`, use a fast/cheap model (e.g., haiku). For `Plan`, use a capable model (e.g., opus or sonnet). See [Custom Agents](#custom-agents) below.
 
 Default agents can be **ejected** (`/agents` → select agent → Eject) to export them as `.md` files for customization, **overridden** by creating a `.md` file with the same name (e.g. `.pi/agents/general-purpose.md`), or **disabled** per-project with `enabled: false` frontmatter.
 
