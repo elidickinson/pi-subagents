@@ -38,6 +38,8 @@ interface SpawnOptions {
   onToolActivity?: (activity: ToolActivity) => void;
   /** Called on streaming text deltas from the assistant response. */
   onTextDelta?: (delta: string, fullText: string) => void;
+  /** Called at the end of each agentic turn with (currentTurn, maxTurns). */
+  onTurnEnd?: (turn: number, maxTurns: number) => void;
   /** Called when the agent session is created (for accessing session stats). */
   onSessionCreated?: (session: AgentSession) => void;
 }
@@ -136,6 +138,7 @@ export class AgentManager {
         options.onToolActivity?.(activity);
       },
       onTextDelta: options.onTextDelta,
+      onTurnEnd: options.onTurnEnd,
       onSessionCreated: (session) => {
         record.session = session;
         options.onSessionCreated?.(session);

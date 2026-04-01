@@ -52,6 +52,8 @@ export type UICtx = {
 export interface AgentActivity {
   activeTools: Map<string, string>;
   toolUses: number;
+  turns: number;
+  maxTurns: number;
   tokens: string;
   responseText: string;
   session?: { getSessionStats(): { tokens: { total: number } } };
@@ -76,6 +78,10 @@ export interface AgentDetails {
   tags?: string[];
   agentId?: string;
   error?: string;
+  /** Current turn count (for running agents). */
+  turns?: number;
+  /** Max turns limit (for running agents). */
+  maxTurns?: number;
 }
 
 // ---- Formatting helpers ----
@@ -303,6 +309,7 @@ export class AgentWidget {
         }
 
         const parts: string[] = [];
+        if (bg && bg.turns > 0) parts.push(`turn ${bg.turns}/${bg.maxTurns}`);
         if (toolUses > 0) parts.push(`${toolUses} tool use${toolUses === 1 ? "" : "s"}`);
         if (tokenText) parts.push(tokenText);
         parts.push(elapsed);

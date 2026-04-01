@@ -89,6 +89,8 @@ export interface RunOptions {
   onToolActivity?: (activity: ToolActivity) => void;
   /** Called on streaming text deltas from the assistant response. */
   onTextDelta?: (delta: string, fullText: string) => void;
+  /** Called at the end of each agentic turn with (currentTurn, maxTurns). */
+  onTurnEnd?: (turn: number, maxTurns: number) => void;
   onSessionCreated?: (session: AgentSession) => void;
   /** Agent ID — enables send_message tool when set. */
   agentId?: string;
@@ -268,6 +270,7 @@ export async function runAgent(
   const unsubTurns = session.subscribe((event: AgentSessionEvent) => {
     if (event.type === "turn_end") {
       turnCount++;
+      options.onTurnEnd?.(turnCount, maxTurns);
       if (!softLimitReached && turnCount >= maxTurns) {
         softLimitReached = true;
         session.steer("You have reached your turn limit. Wrap up immediately — provide your final answer now.");

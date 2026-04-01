@@ -55,9 +55,14 @@ function safeFormatTokens(session: { getSessionStats(): { tokens: { total: numbe
  * Used by both foreground and background paths to avoid duplication.
  */
 function createActivityTracker(onStreamUpdate?: () => void) {
-  const state: AgentActivity = { activeTools: new Map(), toolUses: 0, tokens: "", responseText: "", session: undefined };
+  const state: AgentActivity = { activeTools: new Map(), toolUses: 0, turns: 0, maxTurns: 0, tokens: "", responseText: "", session: undefined };
 
   const callbacks = {
+    onTurnEnd: (turn: number, maxTurns: number) => {
+      state.turns = turn;
+      state.maxTurns = maxTurns;
+      onStreamUpdate?.();
+    },
     onToolActivity: (activity: { type: "start" | "end"; toolName: string }) => {
       if (activity.type === "start") {
         state.activeTools.set(activity.toolName + "_" + Date.now(), activity.toolName);
@@ -481,11 +486,12 @@ Guidelines:
         return new Text(text, 0, 0);
       }
 
-      // Helper: build "haiku · thinking: high · 3 tool uses · 33.8k tokens" stats string
+      // Helper: build "haiku · thinking: high · turn 3/50 · 3 tool uses · 33.8k tokens" stats string
       const stats = (d: AgentDetails) => {
         const parts: string[] = [];
         if (d.modelName) parts.push(d.modelName);
         if (d.tags) parts.push(...d.tags);
+        if (d.turns && d.maxTurns) parts.push(`turn ${d.turns}/${d.maxTurns}`);
         if (d.toolUses > 0) parts.push(`${d.toolUses} tool use${d.toolUses === 1 ? "" : "s"}`);
         if (d.tokens) parts.push(d.tokens);
         return parts.map(p => theme.fg("dim", p)).join(" " + theme.fg("dim", "·") + " ");
@@ -720,6 +726,8 @@ Guidelines:
         const details: AgentDetails = {
           ...detailBase,
           toolUses: fgState.toolUses,
+          turns: fgState.turns,
+          maxTurns: fgState.maxTurns,
           tokens: fgState.tokens,
           durationMs: Date.now() - startedAt,
           status: "running",
