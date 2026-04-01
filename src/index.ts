@@ -468,6 +468,7 @@ Guidelines:
       const tags: string[] = [];
       if (args.model) tags.push(args.model);
       if (args.run_in_background) tags.push("bg");
+      if (args.max_turns) tags.push(`max_turns: ${args.max_turns}`);
       if (args.thinking_level) tags.push(`thinking: ${args.thinking_level}`);
       const suffix = tags.length ? " · " + tags.map(t => theme.fg("dim", t)).join(" " + theme.fg("dim", "·") + " ") : "";
       return new Text("▸ " + theme.fg("toolTitle", theme.bold(displayName)) + (desc ? "  " + theme.fg("muted", desc) : "") + suffix, 0, 0);
@@ -545,8 +546,10 @@ Guidelines:
 
       if (details.status === "error") {
         line += "\n" + theme.fg("error", `  ⎿  Error: ${details.error ?? "unknown"}`);
-      } else {
+      } else if (details.status === "aborted") {
         line += "\n" + theme.fg("warning", "  ⎿  Aborted (max turns exceeded)");
+      } else {
+        line += "\n" + theme.fg("error", `  ⎿  Failed (status: ${details.status})`);
       }
 
       return new Text(line, 0, 0);
@@ -558,6 +561,26 @@ Guidelines:
       // Ensure we have UI context for widget rendering
       widget.setUICtx(ctx.ui as UICtx);
 
+      try {
+        return await executeAgent(params, signal, onUpdate, ctx);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const errorDetails: AgentDetails = {
+          displayName: "Agent",
+          description: params.description,
+          subagentType: "general-purpose",
+          toolUses: 0,
+          tokens: "",
+          durationMs: 0,
+          status: "error",
+          error: msg,
+        };
+        return textResult(`Agent crashed: ${msg}`, errorDetails);
+      }
+    },
+  });
+
+  async function executeAgent(params: any, signal: AbortSignal | undefined, onUpdate: any, ctx: any) {
       // Reload custom agents so new .pi/agents/*.md files are picked up without restart
       reloadCustomAgents();
 
@@ -772,8 +795,7 @@ Guidelines:
         (record.result ?? "No output."),
         details,
       );
-    },
-  });
+  }
 
   // ---- get_subagent_result tool ----
 

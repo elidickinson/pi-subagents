@@ -56,7 +56,8 @@ export function registerAgents(userAgents: Map<string, AgentConfig>): void {
 }
 
 /** Case-insensitive key resolution. */
-function resolveKey(name: string): string | undefined {
+function resolveKey(name: string | undefined): string | undefined {
+  if (!name) return undefined;
   if (agents.has(name)) return name;
   const lower = name.toLowerCase();
   for (const key of agents.keys()) {
