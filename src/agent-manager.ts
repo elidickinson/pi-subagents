@@ -18,6 +18,12 @@ export type OnAgentStart = (record: AgentRecord) => void;
 /** Default max concurrent background agents. */
 const DEFAULT_MAX_CONCURRENT = 4;
 
+/** Default cleanup timeout: 1 hour in milliseconds. */
+const DEFAULT_CLEANUP_TIMEOUT_MS = 60 * 60 * 1000;
+
+/** Timer interval for cleanup checks (1 minute). */
+const CLEANUP_INTERVAL_MS = 60 * 1000;
+
 interface SpawnArgs {
   pi: ExtensionAPI;
   ctx: ExtensionContext;
@@ -50,6 +56,7 @@ export class AgentManager {
   private onComplete?: OnAgentComplete;
   private onStart?: OnAgentStart;
   private maxConcurrent: number;
+  private cleanupTimeoutMs: number;
   private nextId = 1;
 
   /** Queue of background agents waiting to start. */
@@ -57,12 +64,13 @@ export class AgentManager {
   /** Number of currently running background agents. */
   private runningBackground = 0;
 
-  constructor(onComplete?: OnAgentComplete, maxConcurrent = DEFAULT_MAX_CONCURRENT, onStart?: OnAgentStart) {
+  constructor(onComplete?: OnAgentComplete, maxConcurrent = DEFAULT_MAX_CONCURRENT, onStart?: OnAgentStart, cleanupTimeoutMs = DEFAULT_CLEANUP_TIMEOUT_MS) {
     this.onComplete = onComplete;
     this.onStart = onStart;
     this.maxConcurrent = maxConcurrent;
-    // Cleanup completed agents after 1 hour (but keep sessions for resume)
-    this.cleanupInterval = setInterval(() => this.cleanup(), 60_000);
+    this.cleanupTimeoutMs = cleanupTimeoutMs;
+    // Run cleanup checks every minute (interval is fixed; timeout is configurable)
+    this.cleanupInterval = setInterval(() => this.cleanup(), CLEANUP_INTERVAL_MS);
   }
 
   /** Update the max concurrent background agents limit. */
@@ -74,6 +82,15 @@ export class AgentManager {
 
   getMaxConcurrent(): number {
     return this.maxConcurrent;
+  }
+
+  /** Update the cleanup timeout (how long to keep completed agent sessions). */
+  setCleanupTimeoutMs(ms: number) {
+    this.cleanupTimeoutMs = ms;
+  }
+
+  getCleanupTimeoutMs(): number {
+    return this.cleanupTimeoutMs;
   }
 
   /**
@@ -276,7 +293,7 @@ export class AgentManager {
   }
 
   private cleanup() {
-    const cutoff = Date.now() - 60 * 60_000;
+    const cutoff = Date.now() - this.cleanupTimeoutMs;
     for (const [id, record] of this.agents) {
       if (record.status === "running" || record.status === "queued") continue;
       if ((record.completedAt ?? 0) >= cutoff) continue;

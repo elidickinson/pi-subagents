@@ -1497,11 +1497,13 @@ ${systemPrompt}
   }
 
   async function showSettings(ctx: ExtensionCommandContext) {
+    const cleanupMinutes = Math.round(manager.getCleanupTimeoutMs() / 60_000);
     const choice = await ctx.ui.select("Settings", [
       `Max concurrency (current: ${manager.getMaxConcurrent()})`,
       `Default max turns (current: ${getDefaultMaxTurns()})`,
       `Grace turns (current: ${getGraceTurns()})`,
       `Join mode (current: ${getDefaultJoinMode()})`,
+      `Cleanup timeout (current: ${cleanupMinutes} min)`,
     ]);
     if (!choice) return;
 
@@ -1548,6 +1550,17 @@ ${systemPrompt}
         const mode = val.split(" ")[0] as JoinMode;
         setDefaultJoinMode(mode);
         ctx.ui.notify(`Default join mode set to ${mode}`, "info");
+      }
+    } else if (choice.startsWith("Cleanup timeout")) {
+      const val = await ctx.ui.input("Cleanup timeout in minutes (how long to keep completed agent sessions)", String(cleanupMinutes));
+      if (val) {
+        const n = parseInt(val, 10);
+        if (n >= 1 && !isNaN(n)) {
+          manager.setCleanupTimeoutMs(n * 60_000);
+          ctx.ui.notify(`Cleanup timeout set to ${n} minutes`, "info");
+        } else {
+          ctx.ui.notify("Must be at least 1 minute.", "warning");
+        }
       }
     }
   }
