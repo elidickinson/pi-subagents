@@ -371,13 +371,31 @@ export function getAgentConversation(session: AgentSession): string {
       if (text.trim()) parts.push(`[User]: ${text.trim()}`);
     } else if (msg.role === "assistant") {
       const textParts: string[] = [];
-      const toolCalls: string[] = [];
+      const toolCalls: Array<{ name: string; args: any }> = [];
       for (const c of msg.content) {
         if (c.type === "text" && c.text) textParts.push(c.text);
-        else if (c.type === "toolCall") toolCalls.push(`  Tool: ${(c as any).toolName ?? "unknown"}`);
+        else if (c.type === "toolCall") toolCalls.push({ name: (c as any).name ?? "unknown", args: (c as any).arguments });
       }
       if (textParts.length > 0) parts.push(`[Assistant]: ${textParts.join("\n")}`);
-      if (toolCalls.length > 0) parts.push(`[Tool Calls]:\n${toolCalls.join("\n")}`);
+      if (toolCalls.length > 0) {
+        const summarizeArgs = (args: any): string => {
+          if (!args || typeof args !== "object") return "";
+          const keys = ["command", "path", "file", "query", "pattern", "glob", "message", "content"];
+          for (const key of keys) {
+            const val = args[key];
+            if (val === undefined) continue;
+            const str = String(val).split("\n")[0];
+            return str.length > 60 ? str.slice(0, 60) + "…" : str;
+          }
+          const firstKey = Object.keys(args)[0];
+          return firstKey ? `${firstKey}: ${String(args[firstKey]).slice(0, 50)}` : "";
+        };
+        const tcLines = toolCalls.map(tc => {
+          const args = summarizeArgs(tc.args);
+          return `  ${args ? `${tc.name}: ${args}` : tc.name}`;
+        });
+        parts.push(`[Tool Calls]:\n${tcLines.join("\n")}`);
+      }
     } else if (msg.role === "toolResult") {
       const text = extractText(msg.content);
       const truncated = text.length > 200 ? text.slice(0, 200) + "..." : text;

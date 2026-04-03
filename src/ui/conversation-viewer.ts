@@ -16,6 +16,43 @@ import { extractText } from "../context.js";
 const CHROME_LINES = 6;
 const MIN_VIEWPORT = 3;
 
+/**
+ * Extract a meaningful summary from tool arguments without tool-specific cases.
+ * Prioritizes common argument keys that convey intent.
+ */
+function summarizeToolArgs(args: any): string {
+  if (!args || typeof args !== "object") return "";
+
+  // Keys that convey what the tool is doing, in priority order
+  const keyPriority = ["command", "path", "file", "query", "pattern", "glob", "message", "content"];
+
+  for (const key of keyPriority) {
+    const val = args[key];
+    if (val === undefined) continue;
+
+    // Truncate long values
+    const str = String(val);
+    const singleLine = str.split("\n")[0];
+    const truncated = singleLine.length > 60 ? singleLine.slice(0, 60) + "…" : singleLine;
+
+    // Special handling for content to not dump file contents
+    if (key === "content" && val.length > 100) {
+      return `${truncated}…`;
+    }
+    return truncated;
+  }
+
+  // Fallback: compact JSON of first key-value pair
+  const keys = Object.keys(args);
+  if (keys.length > 0) {
+    const val = args[keys[0]];
+    const str = String(val).slice(0, 50);
+    return `${keys[0]}: ${str}`;
+  }
+
+  return "";
+}
+
 export class ConversationViewer implements Component {
   private scrollOffset = 0;
   private autoScroll = true;
@@ -187,11 +224,11 @@ export class ConversationViewer implements Component {
         }
       } else if (msg.role === "assistant") {
         const textParts: string[] = [];
-        const toolCalls: string[] = [];
+        const toolCalls: Array<{ name: string; args: any }> = [];
         for (const c of msg.content) {
           if (c.type === "text" && c.text) textParts.push(c.text);
           else if (c.type === "toolCall") {
-            toolCalls.push((c as any).toolName ?? "unknown");
+            toolCalls.push({ name: (c as any).name ?? "unknown", args: (c as any).arguments });
           }
         }
         if (needsSeparator) lines.push(th.fg("dim", "───"));
@@ -201,8 +238,10 @@ export class ConversationViewer implements Component {
             lines.push(line);
           }
         }
-        for (const name of toolCalls) {
-          lines.push(truncateToWidth(th.fg("muted", `  [Tool: ${name}]`), width));
+        for (const tc of toolCalls) {
+          const args = summarizeToolArgs(tc.args);
+          const summary = args ? `${tc.name}: ${args}` : tc.name;
+          lines.push(truncateToWidth(th.fg("muted", `  [${summary}]`), width));
         }
       } else if (msg.role === "toolResult") {
         const text = extractText(msg.content);

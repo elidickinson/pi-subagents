@@ -84,8 +84,8 @@ export function exportAgentSession(session: AgentSession, record: AgentRecord): 
         if (c.type === "text" && c.text) textParts.push(c.text);
         else if (c.type === "toolCall") {
           toolCalls.push({
-            name: (c as any).toolName ?? "unknown",
-            params: (c as any).params,
+            name: (c as any).name ?? "unknown",
+            params: (c as any).arguments,
           });
         }
       }
