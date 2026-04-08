@@ -772,6 +772,7 @@ Guidelines:
         isolated,
         inheritContext,
         thinkingLevel: thinking,
+        parentSignal: signal,
         ...fgCallbacks,
       });
 

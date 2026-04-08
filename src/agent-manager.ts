@@ -40,6 +40,8 @@ interface SpawnOptions {
   inheritContext?: boolean;
   thinkingLevel?: ThinkingLevel;
   isBackground?: boolean;
+  /** Parent abort signal (e.g. from pi's tool execution). Aborting this signal aborts the agent. */
+  parentSignal?: AbortSignal;
   /** Called on tool start/end with activity info (for streaming progress to UI). */
   onToolActivity?: (activity: ToolActivity) => void;
   /** Called on streaming text deltas from the assistant response. */
@@ -106,6 +108,13 @@ export class AgentManager {
   ): string {
     const id = String(this.nextId++);
     const abortController = new AbortController();
+
+    // Forward parent signal (e.g. pi's Esc key) to abort the agent
+    if (options.parentSignal) {
+      const onParentAbort = () => abortController.abort();
+      options.parentSignal.addEventListener("abort", onParentAbort, { once: true });
+    }
+
     const record: AgentRecord = {
       id,
       type,
