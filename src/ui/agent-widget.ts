@@ -395,7 +395,14 @@ export class AgentWidget {
         );
       }
 
-      return { render: () => lines, invalidate: () => {} };
+      return {
+        render: (renderWidth: number) => {
+          if (renderWidth >= w) return lines;
+          // Terminal narrowed since lines were built — re-truncate to avoid TUI crash
+          return lines.map(line => truncateToWidth(line, renderWidth));
+        },
+        invalidate: () => {},
+      };
     }, { placement: "aboveEditor" });
   }
 
