@@ -293,6 +293,9 @@ export default function (pi: ExtensionAPI) {
   // Wait for all subagents on shutdown, then dispose the manager
   pi.on("session_shutdown", async () => {
     delete (globalThis as any)[MANAGER_KEY];
+    if (batchFinalizeTimer) clearTimeout(batchFinalizeTimer);
+    widget.dispose();
+    groupJoin.dispose();
     await manager.waitForAll();
     manager.dispose();
   });
@@ -765,18 +768,21 @@ Guidelines:
 
       streamUpdate();
 
-      const record = await manager.spawnAndWait(pi, ctx, subagentType, params.prompt, {
-        description: params.description,
-        model,
-        maxTurns: params.max_turns,
-        isolated,
-        inheritContext,
-        thinkingLevel: thinking,
-        parentSignal: signal,
-        ...fgCallbacks,
-      });
-
-      clearInterval(spinnerInterval);
+      let record: AgentRecord;
+      try {
+        record = await manager.spawnAndWait(pi, ctx, subagentType, params.prompt, {
+          description: params.description,
+          model,
+          maxTurns: params.max_turns,
+          isolated,
+          inheritContext,
+          thinkingLevel: thinking,
+          parentSignal: signal,
+          ...fgCallbacks,
+        });
+      } finally {
+        clearInterval(spinnerInterval);
+      }
 
       // Clean up foreground agent from widget
       if (fgId) {
