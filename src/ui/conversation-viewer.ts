@@ -252,8 +252,9 @@ export class ConversationViewer implements Component {
         for (const line of wrapTextWithAnsi(truncated.trim(), width)) {
           lines.push(th.fg("dim", line));
         }
-      } else if ((msg as any).role === "bashExecution") {
-        const bash = msg as any;
+      } else if (typeof (msg as any).command === "string") {
+        // Defensive type guard for bash execution messages (don't assume role name)
+        const bash = msg as { command: string; output?: string };
         if (needsSeparator) lines.push(th.fg("dim", "───"));
         lines.push(truncateToWidth(th.fg("muted", `  $ ${bash.command}`), width));
         if (bash.output?.trim()) {
