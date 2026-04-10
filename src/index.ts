@@ -57,6 +57,7 @@ function safeFormatTokens(session: { getSessionStats(): { tokens: { total: numbe
  */
 function createActivityTracker(onStreamUpdate?: () => void) {
   const state: AgentActivity = { activeTools: new Map(), toolUses: 0, turns: 0, maxTurns: 0, tokens: "", responseText: "", session: undefined };
+  let toolCounter = 0;  // Unique key counter (avoids Date.now() collisions)
 
   const callbacks = {
     onTurnEnd: (turn: number, maxTurns: number) => {
@@ -66,7 +67,7 @@ function createActivityTracker(onStreamUpdate?: () => void) {
     },
     onToolActivity: (activity: { type: "start" | "end"; toolName: string }) => {
       if (activity.type === "start") {
-        state.activeTools.set(activity.toolName + "_" + Date.now(), activity.toolName);
+        state.activeTools.set(activity.toolName + "_" + (++toolCounter), activity.toolName);
       } else {
         for (const [key, name] of state.activeTools) {
           if (name === activity.toolName) { state.activeTools.delete(key); break; }
