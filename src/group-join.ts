@@ -84,6 +84,7 @@ export class GroupJoinManager {
 
   private onTimeout(group: AgentGroup): void {
     if (group.delivered) return;
+    group.delivered = true;  // Prevent double-delivery when stragglers complete
     group.timeoutHandle = undefined;
 
     // Partial delivery — some agents still running
@@ -100,7 +101,7 @@ export class GroupJoinManager {
     // Deliver what we have
     this.deliverCb([...group.completedRecords.values()], true);
 
-    // Set up straggler group for remaining agents
+    // Set up straggler tracking for remaining agents
     group.completedRecords.clear();
     group.agentIds = remaining;
     group.isStraggler = true;
