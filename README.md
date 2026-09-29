@@ -334,7 +334,7 @@ All fields are optional — sensible defaults for everything.
 
 Frontmatter is authoritative. If an agent file sets `model`, `thinking`, `max_turns`, `inherit_context`, `run_in_background`, `isolated`, or `isolation`, those values are locked for that agent. `Agent` tool parameters only fill fields the agent config leaves unspecified.
 
-**Strict `model:` resolution.** A `provider/modelId` must name an available model exactly (case-insensitive). There is no near-miss or cross-provider matching, so a mistyped or guessed id can't land on another provider's lookalike. A short name like `haiku` is fuzzy-matched (`.`/`-` interchangeable, trailing date stamp optional), but only against your scoped models, so it needs [Model Scope](#model-scope) on with `enabledModels` set. A model that doesn't resolve is an error, never a silent fallback to the parent's model: the spawn is refused, and a scheduled job records an error. The error lists the scoped models, or without a scope the five closest available ones. `/agents → Agent types` flags such a pin as `(unavailable)`, and shows `(→ provider/id)` for the scoped model a short-name pin picks.
+**Strict `model:` resolution.** A `provider/modelId` must name an available model exactly (case-insensitive). A short name like `haiku` is fuzzy-matched (`.`/`-` interchangeable, trailing date stamp optional) against your scoped models only, so it needs [Model Scope](#model-scope) on with `enabledModels` set. A model that doesn't resolve is an error: the spawn is refused, and a scheduled job records an error. The error lists the scoped models, or without a scope the five closest available ones. `/agents → Agent types` flags such a pin as `(unavailable)`, and shows `(→ provider/id)` for the scoped model a short-name pin picks.
 
 ### Nested subagents
 
@@ -481,7 +481,7 @@ Cancelling a `wait: true` call (for example, with `Esc`) stops only the wait. Th
 
 ### `send_message` (subagent tool)
 
-A running subagent can send a fire-and-forget message to the main agent without stopping its work. The message arrives in the main conversation as an agent message (like a completion notification, not a user message) and wakes the main agent; the main agent can reply to a top-level agent with `steer_subagent`. Nested and workflow agents also message the main conversation, not their immediate caller; their owners must handle any reply.
+A running subagent can message the main agent without stopping its work. The message shows in the main conversation as an agent message and wakes the main agent, which can reply to a top-level agent with `steer_subagent`. Messages from nested and workflow agents also go to the main conversation.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -626,7 +626,7 @@ When on, each subagent spawn's effective model is validated against pi's own `en
 
 **No-op safety:** if `enabledModels` is missing or empty in pi's settings, scope check skips entirely — no false positives, no spurious errors.
 
-**Short names:** a short `model` like `"haiku"` fuzzy-matches within the allowed set. With scope off, or no usable `enabledModels` entries, short names are refused and only exact `provider/modelId` works. With scope on, the Agent tool's `model` parameter lists the `enabledModels` entries so the orchestrator picks from them instead of guessing; the list is read at startup, so changes show up next session.
+**Short names:** a short `model` like `"haiku"` fuzzy-matches within the allowed set. With scope off, or no usable `enabledModels` entries, short names are refused and only exact `provider/modelId` works. With scope on, the Agent tool's `model` parameter lists the `enabledModels` entries, read at startup.
 
 ## Persistent Settings
 
@@ -820,7 +820,7 @@ pi.events.emit("subagents:rpc:spawn", {
 
 `options` is the manager's spawn-option object, not the `Agent` tool's parameter schema — the background flag is `isBackground`, and the tool's snake_case `run_in_background` is forwarded verbatim and ignored. Every RPC spawn returns its id immediately and runs detached either way; `isBackground: true` is what makes the agent occupy one of the `maxConcurrent` slots (and queue behind them when they are full). It does not affect `subagents:created`, which is never emitted for an RPC spawn at all — the first event you see for one is `subagents:started`. Leaving it unset starts the agent immediately regardless of the limit. `maxConcurrentForeground` never applies here whatever `isBackground` says: it bounds only spawns a caller is blocking on inline, and every RPC spawn is detached. A top-level RPC spawn renders in the widget and FleetView while it runs, with the same live tool activity and turn counter an `Agent`-tool spawn gets — only an explicit `isBackground: false` is dropped by the widget's default `background` mode, the way a foreground `Agent` call is. Nested spawns stay hidden from both.
 
-`options.model` accepts either a `Model` object (e.g. `ctx.model`) or a `"provider/modelId"` string — strings are resolved against `ctx.modelRegistry` at the RPC boundary, so cross-extension callers can forward serializable values without losing auth context. Resolution is as strict as `Agent({ model })`'s, and with [Model Scope](#model-scope) on, an override outside `enabledModels` is refused with an error envelope listing the allowed models, exactly as a caller-supplied `Agent({ model })` is. `null` means unset — the agent inherits, same as omitting the field.
+`options.model` accepts either a `Model` object (e.g. `ctx.model`) or a `"provider/modelId"` string — strings are resolved against `ctx.modelRegistry` at the RPC boundary, so cross-extension callers can forward serializable values without losing auth context. Strings resolve the same way as `Agent({ model })`, and with [Model Scope](#model-scope) on, an override outside `enabledModels` is refused with an error envelope listing the allowed models, exactly as a caller-supplied `Agent({ model })` is. `null` means unset — the agent inherits, same as omitting the field.
 
 `options.cwd` (absolute path to an existing directory — anything else returns an error envelope; `null` means unset) runs the agent in a different working directory than the parent session. Its tools operate there and the prompt's environment block describes it, but **`.pi` config still loads from the parent session's project** — the target directory's `.pi` extensions never execute, and its agents/skills/settings are not picked up. Combined with `isolation: "worktree"`, the worktree is created *from* the target directory's repo, the agent works at the equivalent subdirectory inside the copy (a monorepo-package cwd stays scoped to that package), and the resulting `pi-agent-*` branch lands in that repo — the completion message names it. On session end, worktree registrations are pruned in every repo that received one; only a hard crash can leave a stale entry (then: `git worktree prune` in the target repo). Agents with `memory:` keep reading/writing the parent project's memory.
 
