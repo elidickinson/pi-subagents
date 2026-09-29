@@ -12,11 +12,13 @@ import {
   type AgentSessionEvent,
   createAgentSession,
   DefaultResourceLoader,
+  defineTool,
   type ExtensionAPI,
   getAgentDir,
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
 import { BUILTIN_TOOL_NAMES, getAgentConfig, getConfig, getMemoryToolNames, getReadOnlyMemoryToolNames, getToolNamesForType } from "./agent-types.js";
 import { runInChildSessionContext } from "./child-context.js";
 import { buildParentContext, extractText } from "./context.js";
@@ -852,6 +854,19 @@ export async function runAgent(
     : [];
   const nestedToolNames = new Set(nestedTools.map(tool => tool.name));
 
+  const messageTool = options.agentId && !disallowedSet?.has("send_message")
+    ? [defineTool({
+        name: "send_message",
+        label: "Send Message",
+        description: "Send a fire-and-forget message to the main agent while you continue working. The main agent can reply by steering you. Use for early findings, status updates, or blockers; do not use excessively.",
+        parameters: Type.Object({ message: Type.String({ description: "Message to send to the main agent" }) }),
+        execute: async (_id, params) => {
+          options.pi.sendUserMessage(`Message from agent ${options.agentId} (${type}):\n\n${params.message}`, { deliverAs: "followUp" });
+          return { content: [{ type: "text", text: "Message sent to parent." }], details: {} };
+        },
+      })]
+    : [];
+
   // The `agent({ schema })` contract: this child reports its answer by calling
   // StructuredOutput, and `structuredJson` below is what the caller reads. The
   // schema was already compiled by whoever asked for it, so a bad one failed
@@ -872,6 +887,7 @@ export async function runAgent(
   const readmitToolNames = new Set([
     ...[...nestedToolNames].filter(name => !disallowedSet?.has(name)),
     ...structuredToolNames,
+    ...messageTool.map(tool => tool.name),
   ]);
 
   // ─── Tool scoping ───────────────────────────────────────────────────────
@@ -918,6 +934,7 @@ export async function runAgent(
       // satisfy it would make the request unsatisfiable by construction rather
       // than merely restricted.
       ...structuredToolNames,
+      ...messageTool.map(tool => tool.name),
     ];
   } else {
     // Deny the orchestration tools EXCEPT the nested ones this agent opted into —
@@ -982,7 +999,7 @@ export async function runAgent(
     ...(parentModelRuntime !== undefined && { modelRuntime: parentModelRuntime as never }),
     model,
     tools: sessionTools,
-    customTools: [...nestedTools, ...structuredTools],
+    customTools: [...nestedTools, ...structuredTools, ...messageTool],
     resourceLoader: loader,
   };
   if (sessionExcludeTools) {

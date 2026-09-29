@@ -217,6 +217,25 @@ beforeEach(() => {
   lastSession = undefined;
 });
 
+describe("send_message", () => {
+  it("delivers a mid-run message to the main agent and remains available with extensions loaded", async () => {
+    vi.mocked(getConfig).mockReturnValueOnce(makeConfig({ extensions: true }));
+    vi.mocked(getAgentConfig).mockReturnValueOnce(makeAgentConfig({ extensions: true }));
+    const sendUserMessage = vi.fn();
+    const { session } = createSession("still working");
+    createAgentSession.mockResolvedValue({ session });
+
+    await runAgent(ctx, "Explore", "go", { pi: { sendUserMessage }, agentId: "agent-123" });
+    expect(lastToolsPassed()).toContain("send_message");
+    expect(await customTool("send_message").execute("call-1", { message: "Found a blocker" }))
+      .toMatchObject({ content: [{ text: "Message sent to parent." }] });
+    expect(sendUserMessage).toHaveBeenCalledWith(
+      "Message from agent agent-123 (Explore):\n\nFound a blocker",
+      { deliverAs: "followUp" },
+    );
+  });
+});
+
 describe("agent-runner final output capture", () => {
   it("returns the final assistant text even when no text_delta events were streamed", async () => {
     const { session } = createSession("LOCKED");
