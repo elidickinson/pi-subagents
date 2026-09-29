@@ -1,5 +1,6 @@
 /**
- * Model resolution: exact match ("provider/modelId") with fuzzy fallback.
+ * Model resolution: exact "provider/modelId", or a short name fuzzy-matched
+ * within the scoped models.
  */
 
 export interface ModelEntry {
@@ -33,32 +34,42 @@ export function describeModel(
 }
 
 /**
- * Resolve a model string to a Model instance.
- * Tries exact match first ("provider/modelId"), then fuzzy match against all available models.
- * Returns the Model on success, or an error message string on failure.
+ * Resolve a model string to a Model instance, or an error message string.
+ *
+ * A "provider/modelId" must name an available (authed) model exactly, ignoring
+ * case. A short name like "haiku" is fuzzy-matched, but only against `scope`
+ * (the resolved enabledModels keys); without a scope, short names are refused.
+ * Matching never crosses providers on its own, so a mistyped or guessed name
+ * errors instead of landing on whichever provider happens to carry a lookalike.
  */
 export function resolveModel(
   input: string,
   registry: ModelRegistry,
+  scope?: Set<string>,
 ): any | string {
   // Available models (those with auth configured)
   const all = (registry.getAvailable?.() ?? registry.getAll()) as ModelEntry[];
-  const availableSet = new Set(all.map(m => `${m.provider}/${m.id}`.toLowerCase()));
+  const key = (m: ModelEntry) => `${m.provider}/${m.id}`.toLowerCase();
+  const candidates = scope ? all.filter(m => scope.has(key(m))) : all;
+  const notFound = (reason: string) => {
+    const list = candidates.map(m => `  ${m.provider}/${m.id}`).sort().join("\n");
+    return `${reason}\n\n${scope ? "Scoped" : "Available"} models:\n${list}`;
+  };
 
-  // 1. Exact match: "provider/modelId" — only if available (has auth)
-  const slashIdx = input.indexOf("/");
-  if (slashIdx !== -1) {
-    const provider = input.slice(0, slashIdx);
-    const modelId = input.slice(slashIdx + 1);
-    if (availableSet.has(input.toLowerCase())) {
-      const found = registry.find(provider, modelId);
-      if (found) return found;
-    }
+  if (input.includes("/")) {
+    const exact = all.find(m => key(m) === input.toLowerCase());
+    const found = exact && registry.find(exact.provider, exact.id);
+    return found ?? notFound(`Model not found: "${input}". Use an exact provider/modelId.`);
   }
 
-  // 2. Fuzzy match against available models. Normalize separators so cosmetic
-  // punctuation differences still match — e.g. "claude-haiku-4.5" and
-  // "claude-haiku-4-5" (dot vs dash in the version) resolve to the same model.
+  if (!scope) {
+    return notFound(
+      `Model "${input}" is not a provider/modelId. Short names only match scoped models (scopeModels on, with enabledModels set).`,
+    );
+  }
+
+  // Fuzzy match. Normalize separators so cosmetic punctuation differences still
+  // match — e.g. "claude-haiku-4.5" and "claude-haiku-4-5" (dot vs dash).
   const normalize = (s: string) => s.toLowerCase().replace(/\./g, "-");
   const query = normalize(input);
 
@@ -66,7 +77,7 @@ export function resolveModel(
   let bestMatch: ModelEntry | undefined;
   let bestScore = 0;
 
-  for (const m of all) {
+  for (const m of candidates) {
     const id = normalize(m.id);
     const name = normalize(m.name ?? "");
     const full = normalize(`${m.provider}/${m.id}`);
@@ -95,24 +106,6 @@ export function resolveModel(
     }
   }
 
-  if (bestMatch && bestScore >= 20) {
-    const found = registry.find(bestMatch.provider, bestMatch.id);
-    if (found) return found;
-  }
-
-  // 3. Provider fallback: a "provider/modelId" query that didn't match under the
-  // named provider (exact or fuzzy above) retries against all providers. The
-  // named provider is preferred when present; this only kicks in when it isn't,
-  // so the same model from another provider beats falling back to "inherit".
-  if (slashIdx !== -1) {
-    const bare = resolveModel(input.slice(slashIdx + 1), registry);
-    if (typeof bare !== "string") return bare;
-  }
-
-  // 4. No match — list available models
-  const modelList = all
-    .map(m => `  ${m.provider}/${m.id}`)
-    .sort()
-    .join("\n");
-  return `Model not found: "${input}".\n\nAvailable models:\n${modelList}`;
+  const found = bestMatch && bestScore >= 20 && registry.find(bestMatch.provider, bestMatch.id);
+  return found || notFound(`No scoped model matches "${input}".`);
 }

@@ -88,10 +88,9 @@ describe("the workflow host reports a child's effective configuration", () => {
   });
 
   it("hands over the model the session actually resolved to, not the script's spelling", async () => {
-    // `name` too: resolveModel fuzzy-matches across id, name and provider/id.
     const haiku = { provider: "anthropic", id: "claude-haiku-4-5", name: "Haiku 4.5" };
     childSessionReports({ model: haiku });
-    // The registry has to resolve the script's fuzzy spelling, or the spawn is
+    // The registry has to resolve the script's spelling, or the spawn is
     // refused before it ever reaches a session — which is the correct behaviour
     // for an unresolvable model, and not what this test is about.
     const host = createWorkflowHost({
@@ -101,8 +100,8 @@ describe("the workflow host reports a child's effective configuration", () => {
     });
     const reported: unknown[] = [];
 
-    // The script asked fuzzily; the row must not keep saying "haiku".
-    await host.spawnAgent(spawnRequest({ model: "haiku", onResolved: configCollector(reported) }));
+    // The row must show the canonical id, not the script's spelling.
+    await host.spawnAgent(spawnRequest({ model: "Anthropic/Claude-Haiku-4-5", onResolved: configCollector(reported) }));
 
     expect(reported).toHaveLength(1);
     expect(reported[0]).toMatchObject({ modelId: "anthropic/claude-haiku-4-5" });
@@ -161,10 +160,10 @@ describe("the workflow host reports a child's effective configuration", () => {
     const reported: { requestedModel?: string }[] = [];
 
     await host.spawnAgent(
-      spawnRequest({ agentType: "pinned", model: "haiku", onResolved: configCollector(reported) }),
+      spawnRequest({ agentType: "pinned", model: "anthropic/claude-haiku-4-5", onResolved: configCollector(reported) }),
     );
 
-    // The script's "haiku" won over the file's pinned opus...
+    // The script's haiku won over the file's pinned opus...
     expect(vi.mocked(runAgent).mock.calls[0]?.[3]).toMatchObject({ model: haiku });
     // ...so nothing was overridden, and nothing is disclosed.
     expect(reported[0]?.requestedModel).toBeUndefined();

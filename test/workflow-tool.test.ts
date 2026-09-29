@@ -169,7 +169,7 @@ describe("createWorkflowHost — spawn mapping", () => {
     const stub = stubManager();
     const host = createWorkflowHost({ pi: {} as any, ctx: ctx(), manager: stub.manager });
 
-    const result = await host.spawnAgent(request({ model: "not-a-model" }));
+    const result = await host.spawnAgent(request({ model: "anthropic/not-a-model" }));
 
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/Model not found/);
@@ -190,7 +190,7 @@ describe("createWorkflowHost — spawn mapping", () => {
       manager: stub.manager,
     });
 
-    await host.spawnAgent(request({ model: "haiku" }));
+    await host.spawnAgent(request({ model: "anthropic/claude-haiku-4-5" }));
 
     expect(stub.spawnAndWait.mock.calls[0][4].model).toBe(model);
   });

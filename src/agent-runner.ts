@@ -23,6 +23,8 @@ import { buildParentContext, extractText } from "./context.js";
 import { DEFAULT_AGENTS } from "./default-agents.js";
 import { detectEnv } from "./env.js";
 import { buildMemoryBlock, buildReadOnlyMemoryBlock } from "./memory.js";
+import type { ModelRegistry } from "./model-resolver.js";
+import { resolveSpawnModel } from "./model-scope.js";
 import { createNestedSubagentTools, getMaxSubagentDepth, type NestedAgentManager } from "./nested-tools.js";
 import { buildAgentPrompt, type PromptExtras } from "./prompts.js";
 import { preloadSkills } from "./skill-loader.js";
@@ -358,34 +360,19 @@ export function getGraceTurns(): number { return graceTurns; }
 export function setGraceTurns(n: number): void { graceTurns = Math.max(1, n); }
 
 /**
- * Try to find the right model for an agent type.
- * Priority: explicit option > config.model > parent model.
+ * The model an agent runs on when the caller passed none: config.model, else
+ * the parent model. A configured model that doesn't resolve throws.
  */
 export function resolveDefaultModel(
   parentModel: Model<any> | undefined,
-  registry: { find(provider: string, modelId: string): Model<any> | undefined; getAvailable?(): Model<any>[] },
-  configModel?: string,
+  registry: ModelRegistry,
+  configModel: string | undefined,
+  cwd: string,
 ): Model<any> | undefined {
-  if (configModel) {
-    const slashIdx = configModel.indexOf("/");
-    if (slashIdx !== -1) {
-      const provider = configModel.slice(0, slashIdx);
-      const modelId = configModel.slice(slashIdx + 1);
-
-      // Build a set of available model keys for fast lookup
-      const available = registry.getAvailable?.();
-      const availableKeys = available
-        ? new Set(available.map((m: any) => `${m.provider}/${m.id}`))
-        : undefined;
-      const isAvailable = (p: string, id: string) =>
-        !availableKeys || availableKeys.has(`${p}/${id}`);
-
-      const found = registry.find(provider, modelId);
-      if (found && isAvailable(provider, modelId)) return found;
-    }
-  }
-
-  return parentModel;
+  if (!configModel) return parentModel;
+  const resolved = resolveSpawnModel(configModel, registry, cwd);
+  if (typeof resolved === "string") throw new Error(resolved);
+  return resolved;
 }
 
 /** Info about a tool event in the subagent. */
@@ -830,7 +817,7 @@ export async function runAgent(
 
   // Resolve model: explicit option > config.model > parent model
   const model = options.model ?? resolveDefaultModel(
-    ctx.model, ctx.modelRegistry, agentConfig?.model,
+    ctx.model, ctx.modelRegistry, agentConfig?.model, ctx.cwd,
   );
 
   // Resolve thinking level: explicit option > agent config > undefined (inherit)

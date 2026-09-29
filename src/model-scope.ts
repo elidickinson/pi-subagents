@@ -8,6 +8,7 @@
  */
 
 import { isModelInScope, type ModelRegistryRef, readEnabledModels, resolveEnabledModels } from "./enabled-models.js";
+import { type ModelRegistry, resolveModel } from "./model-resolver.js";
 
 /**
  * When enabled, subagent model choices are validated against `enabledModels`
@@ -20,6 +21,15 @@ let scopeModelsEnabled = false;
 
 export function isScopeModelsEnabled(): boolean { return scopeModelsEnabled; }
 export function setScopeModelsEnabled(enabled: boolean): void { scopeModelsEnabled = enabled; }
+
+/**
+ * resolveModel for a spawn: short names fuzzy-match only within the scoped
+ * models, and only while scopeModels is on.
+ */
+export function resolveSpawnModel(input: string, registry: ModelRegistry, cwd: string): any | string {
+  const scope = scopeModelsEnabled ? resolveEnabledModels(readEnabledModels(cwd), registry, cwd) : undefined;
+  return resolveModel(input, registry, scope);
+}
 
 export type ModelScopeVerdict =
   /** In scope, or nothing to validate against (feature off / no allowlist). */

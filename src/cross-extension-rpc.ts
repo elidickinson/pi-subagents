@@ -14,8 +14,8 @@
  */
 
 import { isTopLevelAgent } from "./agent-manager.js";
-import { type ModelRegistry, resolveModel } from "./model-resolver.js";
-import { checkModelScope } from "./model-scope.js";
+import type { ModelRegistry } from "./model-resolver.js";
+import { checkModelScope, resolveSpawnModel } from "./model-scope.js";
 import type { AgentRecord } from "./types.js";
 
 /** Minimal event bus interface needed by the RPC handlers. */
@@ -127,7 +127,7 @@ export function registerRpcHandlers(deps: RpcDeps): RpcHandle {
         }
         let model = override;
         if (typeof override === "string") {
-          const resolved = resolveModel(override, modelRegistry);
+          const resolved = resolveSpawnModel(override, modelRegistry, cwd ?? process.cwd());
           if (typeof resolved === "string") {
             // resolveModel returns a human-readable error string when the
             // input doesn't match any available model. Surface it instead of
@@ -140,10 +140,8 @@ export function registerRpcHandlers(deps: RpcDeps): RpcHandle {
 
         // A model on the RPC payload is an orchestrator-level choice, exactly
         // like Agent({ model }) — so it gets the Agent tool's hard error, never
-        // the frontmatter warn (#240). The check reads the RESOLVED model:
-        // resolveModel is fuzzy, so a bare "sonnet" can land on a provider the
-        // caller never named. Frontmatter-pinned and parent-inherited models are
-        // resolved later, in agent-runner, and keep warn-and-proceed.
+        // the frontmatter warn (#240). Frontmatter-pinned and parent-inherited
+        // models are resolved later, in agent-runner, and keep warn-and-proceed.
         const verdict = checkModelScope({
           model,
           cwd: cwd ?? process.cwd(),

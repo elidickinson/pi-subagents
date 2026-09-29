@@ -17,8 +17,7 @@ import {
 } from "./agent-types.js";
 import { loadCustomAgents } from "./custom-agents.js";
 import { isolationParam, resolveAgentInvocationConfig } from "./invocation-config.js";
-import { resolveModel } from "./model-resolver.js";
-import { checkModelScope } from "./model-scope.js";
+import { checkModelScope, resolveSpawnModel } from "./model-scope.js";
 import {
   createOutputFilePath,
   getOutputTranscriptDefault,
@@ -230,12 +229,13 @@ export function createNestedSubagentTools(context: NestedToolContext): ToolDefin
       });
       let model = ctx.model;
       if (invocation.modelInput) {
-        const resolvedModel = resolveModel(invocation.modelInput, ctx.modelRegistry);
+        const resolvedModel = resolveSpawnModel(invocation.modelInput, ctx.modelRegistry, context.configCwd);
         if (typeof resolvedModel === "string") {
           if (invocation.modelFromParams) return textResult(resolvedModel, true);
-        } else {
-          model = resolvedModel;
+          const label = config?.displayName ?? resolvedType;
+          return textResult(`Agent "${label}" pins a model that can't be used; fix the model in its agent file.\n\n${resolvedModel}`, true);
         }
+        model = resolvedModel;
       }
 
       // Same scopeModels policy as the top-level Agent tool — a nested spawn

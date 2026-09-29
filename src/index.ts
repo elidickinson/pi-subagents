@@ -28,8 +28,8 @@ import { GroupJoinManager } from "./group-join.js";
 import { isolationParam, resolveAgentInvocationConfig, resolveJoinMode } from "./invocation-config.js";
 import { describeMention, handleBase, isReservedHandle, parseMention, resolveHandleToType, stripAgentPrefix } from "./mention.js";
 import { runMentionClone } from "./mention-clone.js";
-import { describeModel, type ModelRegistry, resolveModel } from "./model-resolver.js";
-import { checkModelScope, isScopeModelsEnabled, setScopeModelsEnabled } from "./model-scope.js";
+import { describeModel, type ModelRegistry } from "./model-resolver.js";
+import { checkModelScope, isScopeModelsEnabled, resolveSpawnModel, setScopeModelsEnabled } from "./model-scope.js";
 import { getMaxSubagentDepth, setMaxSubagentDepth } from "./nested-tools.js";
 import { createOutputFilePath, ensureOutputFile, getOutputTranscriptDefault, sessionTaskDir, setOutputTranscriptDefault, streamToOutputFile, writeInitialEntry } from "./output-file.js";
 import { SubagentScheduler } from "./schedule.js";
@@ -1510,7 +1510,7 @@ If the target is already known, use a direct tool — \`read\` for a known path,
 - Use steer_subagent to send mid-run messages to a running background agent.
 - Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, etc.), since it is not aware of the user's intent.
 - If an agent's description says it should be used proactively, try to use it without the user having to ask for it first.
-- Use model to specify a different model (as "provider/modelId", or fuzzy e.g. "haiku", "sonnet").
+- Use model to specify a different model, as an exact "provider/modelId" (short names like "haiku" only match scoped models).
 - Use thinking to control extended thinking level.
 - Use inherit_context if the agent needs the parent conversation history.${isolationGuideline}${scheduleGuideline}
 
@@ -1608,7 +1608,7 @@ Terse command-style prompts produce shallow, generic work.
       model: Type.Optional(
         Type.String({
           description:
-            'Optional model override. Accepts "provider/modelId" or fuzzy name (e.g. "haiku", "sonnet"). Omit to use the agent type\'s default.',
+            'Optional model override, as an exact "provider/modelId". Short names (e.g. "haiku") only match scoped models. Omit to use the agent type\'s default.',
         }),
       ),
       thinking: Type.Optional(
@@ -1810,13 +1810,12 @@ Terse command-style prompts produce shallow, generic work.
       // Resolve model from agent config first; tool-call params only fill gaps.
       let model = ctx.model;
       if (resolvedConfig.modelInput) {
-        const resolved = resolveModel(resolvedConfig.modelInput, ctx.modelRegistry);
+        const resolved = resolveSpawnModel(resolvedConfig.modelInput, ctx.modelRegistry, ctx.cwd);
         if (typeof resolved === "string") {
           if (resolvedConfig.modelFromParams) return textResult(resolved);
-          // config-specified: silent fallback to parent
-        } else {
-          model = resolved;
+          return textResult(`Agent "${displayName}" pins a model that can't be used; fix the model in its agent file.\n\n${resolved}`);
         }
+        model = resolved;
       }
 
       // Scope validation: the effective resolved model is checked against the
@@ -1857,13 +1856,13 @@ Terse command-style prompts produce shallow, generic work.
       // effective values the moment a session reports them.
       const { modelName, modelId } = model ? describeModel(model) : { modelName: undefined, modelId: undefined };
       // What the caller SPELLED, kept only if it names a different model than the
-      // one that won. Model input is fuzzy — `"haiku"` and
+      // one that won. Short names are fuzzy — `"haiku"` and
       // `"anthropic/claude-haiku-4-5"` are the same model — so comparing the two
       // strings would disclose an override that never happened. A spelling that
       // resolves to nothing is still worth disclosing: it cannot have taken effect.
       const askedModel = ((asked: string | undefined) => {
         if (!asked) return undefined;
-        const resolvedAsked = resolveModel(asked, ctx.modelRegistry);
+        const resolvedAsked = resolveSpawnModel(asked, ctx.modelRegistry, ctx.cwd);
         if (typeof resolvedAsked === "string") return asked;
         return resolvedAsked.provider === model?.provider && resolvedAsked.id === model?.id ? undefined : asked;
       })(resolvedConfig.overridden?.model);
@@ -2879,22 +2878,17 @@ Terse command-style prompts produce shallow, generic work.
   // so they are reachable from tests — this command handler is only registered
   // through `registerCommand`, which every test mocks.
 
-  function getModelLabel(type: string, registry?: ModelRegistry): string {
+  function getModelLabel(type: string, registry: ModelRegistry, cwd: string): string {
     const cfg = getAgentConfig(type);
     if (!cfg?.model) return "inherit"; // no model configured → really inherits parent
     const label = getModelLabelFromConfig(cfg.model);
-    if (!registry) return label;
-    const resolved = resolveModel(cfg.model, registry);
-    // Configured but unresolvable: the runtime silently falls back to the parent
-    // model, so flag it (and the fallback) rather than hiding the config.
-    if (typeof resolved === "string") return `${label} (unavailable, fallback: inherit)`;
-    // Surface what it actually resolved to when that differs from the config —
-    // e.g. a provider fallback or a looser version pin. Cosmetic separator/date
-    // differences are normalized away so an effectively-identical match stays quiet.
+    const resolved = resolveSpawnModel(cfg.model, registry, cwd);
+    // Configured but unresolvable: spawning this agent will fail.
+    if (typeof resolved === "string") return `${label} (unavailable)`;
+    // A short-name pin: show which scoped model it picks.
     const resolvedFull = `${resolved.provider}/${resolved.id}`;
-    const norm = (s: string) => s.toLowerCase().replace(/\./g, "-").replace(/-\d{8}$/, "");
-    if (norm(cfg.model) === norm(resolvedFull)) return label;
-    return `${label} (→ ${resolvedFull.replace(/-\d{8}$/, "")})`;
+    if (cfg.model.toLowerCase() === resolvedFull.toLowerCase()) return label;
+    return `${label} (→ ${resolvedFull})`;
   }
 
   async function showAgentsMenu(ctx: ExtensionCommandContext) {
@@ -2989,7 +2983,7 @@ Terse command-style prompts produce shallow, generic work.
     const items: SettingItem[] = allNames.map(name => {
       const cfg = getAgentConfig(name);
       const disabled = cfg?.enabled === false;
-      const model = getModelLabel(name, ctx.modelRegistry);
+      const model = getModelLabel(name, ctx.modelRegistry, ctx.cwd);
       return {
         id: name,
         label: `${sourceIndicator(cfg)}${name}`,

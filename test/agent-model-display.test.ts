@@ -255,22 +255,46 @@ describe("Agent tool result — effective model", () => {
   });
 
   it("stays quiet when the caller's spelling names the model that won", async () => {
-    // Model input is fuzzy: `"haiku"` and `"anthropic/claude-haiku-4-5"` are the
-    // same model, and the frontmatter did not take anything away from the
-    // caller. Comparing the raw strings would print "haiku 4.5 (asked haiku)".
+    // Model input is case-insensitive: `"Anthropic/Claude-Haiku-4-5"` is the same
+    // model as the pin, and the frontmatter did not take anything away from the
+    // caller. Comparing the raw strings would print a bogus "(asked …)".
     pinnedAgent("model: anthropic/claude-haiku-4-5\n");
     const tool = agentTool();
     vi.mocked(runAgent).mockImplementation(() => new Promise(() => {}) as never);
 
     const result = await tool.execute(
       "tc-5b",
-      { prompt: "go", description: "d", subagent_type: "pinned", model: "haiku", run_in_background: true },
+      {
+        prompt: "go",
+        description: "d",
+        subagent_type: "pinned",
+        model: "Anthropic/Claude-Haiku-4-5",
+        run_in_background: true,
+      },
       undefined,
       undefined,
       ctx(),
     );
 
     expect(result.details.modelName).toBe("haiku 4.5");
+  });
+
+  it("refuses to spawn an agent whose pinned model doesn't resolve", async () => {
+    pinnedAgent("model: anthropic/claude-haiku-9\n");
+    const tool = agentTool();
+    vi.mocked(runAgent).mockClear();
+
+    const result = await tool.execute(
+      "tc-5d",
+      { prompt: "go", description: "d", subagent_type: "pinned", run_in_background: true },
+      undefined,
+      undefined,
+      ctx(),
+    );
+
+    expect(result.content[0].text).toContain("fix the model in its agent file");
+    expect(result.content[0].text).toContain('Model not found: "anthropic/claude-haiku-9"');
+    expect(runAgent).not.toHaveBeenCalled();
   });
 
   it("discloses a spelling that names no available model at all", async () => {

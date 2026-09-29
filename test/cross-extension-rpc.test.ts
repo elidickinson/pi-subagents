@@ -516,12 +516,10 @@ describe("cross-extension RPC", () => {
     }
 
     it("refuses an out-of-scope string override, listing what is allowed", async () => {
-      // The reported case: a bare "sonnet" fuzzy-resolves across providers, so
-      // only the RESOLVED model can be compared against enabledModels.
-      const call = await spawn("req-sc1", "sonnet");
+      const call = await spawn("req-sc1", "anthropic/claude-sonnet-4");
       expect(call.success).toBe(false);
       expect(call.error).toMatch(/Model not in scope/);
-      expect(call.error).toContain('"sonnet"');
+      expect(call.error).toContain('"anthropic/claude-sonnet-4"');
       expect(call.error).toContain("  openai-codex/gpt-5.5");
       expect(manager.spawn).not.toHaveBeenCalled();
     });
@@ -544,7 +542,7 @@ describe("cross-extension RPC", () => {
 
     it("does not check scope while the setting is off", async () => {
       setScopeModelsEnabled(false);
-      const call = await spawn("req-sc4", "sonnet");
+      const call = await spawn("req-sc4", "anthropic/claude-sonnet-4");
       expect(call).toEqual({ success: true, data: { id: "agent-42" } });
       expect(manager.spawn).toHaveBeenCalledWith(
         deps.pi, ctx, "general-purpose", "x", { model: BLOCKED },
