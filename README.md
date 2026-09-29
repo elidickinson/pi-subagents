@@ -1,6 +1,6 @@
 > [!NOTE]
 > **Fork of [tintinweb/pi-subagents](https://github.com/tintinweb/pi-subagents).** Differences from upstream:
-> - Strict model resolution: exact `provider/modelId` only; short names like `haiku` match only within scoped models. No cross-provider fallback, and an unresolvable model is an error instead of silently using the parent's.
+> - Strict model resolution: exact `provider/modelId` only; short names like `haiku` match only within scoped models. No cross-provider fallback, and an unresolvable model is an error instead of silently using the parent's. The Agent tool lists your scoped models, and errors suggest the closest real ids.
 > - The built-in Explore agent inherits the parent model instead of pinning Haiku.
 > - Completed agents are kept for 1 hour (not 10 minutes) so they can still be resumed.
 > - Fix for a crash on models that have no display name.
@@ -333,7 +333,7 @@ All fields are optional — sensible defaults for everything.
 
 Frontmatter is authoritative. If an agent file sets `model`, `thinking`, `max_turns`, `inherit_context`, `run_in_background`, `isolated`, or `isolation`, those values are locked for that agent. `Agent` tool parameters only fill fields the agent config leaves unspecified.
 
-**Strict `model:` resolution.** A `provider/modelId` must name an available model exactly (case-insensitive). There is no near-miss or cross-provider matching, so a mistyped or guessed id can't land on another provider's lookalike. A short name like `haiku` is fuzzy-matched (`.`/`-` interchangeable, trailing date stamp optional), but only against your scoped models, so it needs [Model Scope](#model-scope) on with `enabledModels` set. A model that doesn't resolve is an error, never a silent fallback to the parent's model: the spawn is refused, and a scheduled job records an error. `/agents → Agent types` flags such a pin as `(unavailable)`, and shows `(→ provider/id)` for the scoped model a short-name pin picks.
+**Strict `model:` resolution.** A `provider/modelId` must name an available model exactly (case-insensitive). There is no near-miss or cross-provider matching, so a mistyped or guessed id can't land on another provider's lookalike. A short name like `haiku` is fuzzy-matched (`.`/`-` interchangeable, trailing date stamp optional), but only against your scoped models, so it needs [Model Scope](#model-scope) on with `enabledModels` set. A model that doesn't resolve is an error, never a silent fallback to the parent's model: the spawn is refused, and a scheduled job records an error. The error lists the scoped models, or without a scope the five closest available ones. `/agents → Agent types` flags such a pin as `(unavailable)`, and shows `(→ provider/id)` for the scoped model a short-name pin picks.
 
 ### Nested subagents
 
@@ -418,7 +418,7 @@ Launch a sub-agent.
 | `description` | string | yes | Short 3-5 word summary (shown in UI) |
 | `name` | string | no | Memorable name for this agent (`auth-audit`), addressable as `@name` and accepted by `steer_subagent`/`get_subagent_result`. Additive — the type-derived handle is still assigned |
 | `subagent_type` | string | yes | Agent type (built-in or custom) |
-| `model` | string | no | Model — exact `provider/modelId`, or a short name (`"haiku"`) matched within scoped models |
+| `model` | string | no | Model — exact `provider/modelId`, or a short name (`"haiku"`) matched within scoped models. With Model Scope on, the parameter description lists the scoped models |
 | `thinking` | string | no | Thinking level: off, minimal, low, medium, high, xhigh, max (availability depends on pi version and model) |
 | `max_turns` | number | no | Max agentic turns. Omit for unlimited (default) |
 | `run_in_background` | boolean | no | Defaults to `true`; `false` blocks and returns the result inline |
@@ -617,7 +617,7 @@ When on, each subagent spawn's effective model is validated against pi's own `en
 
 **No-op safety:** if `enabledModels` is missing or empty in pi's settings, scope check skips entirely — no false positives, no spurious errors.
 
-**Short names:** a short `model` like `"haiku"` fuzzy-matches within the allowed set. With scope off, or no usable `enabledModels` entries, short names are refused and only exact `provider/modelId` works.
+**Short names:** a short `model` like `"haiku"` fuzzy-matches within the allowed set. With scope off, or no usable `enabledModels` entries, short names are refused and only exact `provider/modelId` works. With scope on, the Agent tool's `model` parameter lists the `enabledModels` entries so the orchestrator picks from them instead of guessing; the list is read at startup, so changes show up next session.
 
 ## Persistent Settings
 

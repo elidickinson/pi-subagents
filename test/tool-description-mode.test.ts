@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import subagentsExtension from "../src/index.js";
+import { setScopeModelsEnabled } from "../src/model-scope.js";
 import { setWorktreeIsolationEnabled } from "../src/worktree.js";
 
 const EXAMPLE_TEMPLATE = fileURLToPath(new URL("../examples/agent-tool-description.md", import.meta.url));
@@ -83,6 +84,7 @@ describe("toolDescriptionMode", () => {
     // previous test left it. Reset it so each setup()'s settings decide, and
     // so the "default" assertions below really test the default.
     setWorktreeIsolationEnabled(true);
+    setScopeModelsEnabled(false);
     process.chdir(prevCwd);
     if (prevAgentDir == null) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = prevAgentDir;
@@ -334,6 +336,27 @@ describe("toolDescriptionMode", () => {
       expect(tools.get("Agent").description).not.toContain("isolation");
       // The bullet above it survives — the gate trims a suffix, not the list.
       expect(tools.get("Agent").description).toContain("resume continues a previous agent by ID");
+    });
+  });
+
+  describe("scopeModels lists the scoped models in the model parameter", () => {
+    const ENABLED = ["anthropic/claude-haiku-4-5", "openai/gpt-5", "*sonnet*"];
+    const modelDescription = (settings: Record<string, unknown>) =>
+      setup(settings, () => {
+        writeFileSync(join(tmpDir, ".pi", "settings.json"), JSON.stringify({ enabledModels: ENABLED }));
+      }).get("Agent").parameters.properties.model.description as string;
+
+    it("lists the exact enabledModels entries when scope is on", () => {
+      const desc = modelDescription({ scopeModels: true });
+      expect(desc).toContain("one of anthropic/claude-haiku-4-5, openai/gpt-5,");
+      // A glob can't be passed as a model, so it isn't offered as one.
+      expect(desc).not.toContain("sonnet");
+    });
+
+    it("lists nothing when scope is off", () => {
+      const desc = modelDescription({});
+      expect(desc).not.toContain("claude-haiku-4-5");
+      expect(desc).toContain('exact "provider/modelId"');
     });
   });
 

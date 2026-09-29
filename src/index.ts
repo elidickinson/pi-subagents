@@ -24,6 +24,7 @@ import { BUILTIN_TOOL_NAMES, getAgentConfig, getAllTypes, getAvailableTypes, get
 import { inChildSessionContext } from "./child-context.js";
 import { type RpcHandle, registerRpcHandlers } from "./cross-extension-rpc.js";
 import { loadCustomAgents } from "./custom-agents.js";
+import { readEnabledModels } from "./enabled-models.js";
 import { GroupJoinManager } from "./group-join.js";
 import { isolationParam, resolveAgentInvocationConfig, resolveJoinMode } from "./invocation-config.js";
 import { describeMention, handleBase, isReservedHandle, parseMention, resolveHandleToType, stripAgentPrefix } from "./mention.js";
@@ -1575,6 +1576,15 @@ Terse command-style prompts produce shallow, generic work.
     return fullAgentToolDescription;
   })();
 
+  // With scopeModels on, the model parameter lists the scoped models so the
+  // orchestrator picks from them instead of guessing. Read at registration like
+  // the rest of the schema, and from the settings files as written: there is no
+  // model registry yet, so an entry that won't resolve is still listed — and
+  // refused, with the resolvable list, at spawn.
+  const scopedModels = isScopeModelsEnabled()
+    ? (readEnabledModels(process.cwd()) ?? []).filter(p => p.includes("/") && !/[*?[]/.test(p))
+    : [];
+
   // Held rather than registered inline: the mention clone reuses this exact
   // definition, so the agent it starts is an ordinary top-level spawn instead
   // of a second implementation that has to be kept in step with this one.
@@ -1607,8 +1617,9 @@ Terse command-style prompts produce shallow, generic work.
       }),
       model: Type.Optional(
         Type.String({
-          description:
-            'Optional model override, as an exact "provider/modelId". Short names (e.g. "haiku") only match scoped models. Omit to use the agent type\'s default.',
+          description: scopedModels.length > 0
+            ? `Optional model override: one of ${scopedModels.join(", ")}, or a short name matching one of them. Omit to use the agent type's default.`
+            : 'Optional model override, as an exact "provider/modelId". Short names (e.g. "haiku") only match scoped models. Omit to use the agent type\'s default.',
         }),
       ),
       thinking: Type.Optional(
@@ -3764,7 +3775,8 @@ Write the file using the write tool. Only write the file, nothing else.`;
       } else if (id === "scopeModels") {
         const enabled = value === "on";
         setScopeModelsEnabled(enabled);
-        notifyApplied(ctx, `Scope models ${enabled ? "enabled" : "disabled"}`);
+        // Enforcement is live; the model list in the tool schema is built at registration.
+        notifyApplied(ctx, `Scope models ${enabled ? "enabled" : "disabled"}. Model list in the Agent tool updates on next pi session.`);
       } else if (id === "strictAgentFiles") {
         const enabled = value === "on";
         strictAgentFiles = enabled;

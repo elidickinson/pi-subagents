@@ -60,7 +60,31 @@ describe("resolveModel", () => {
     it("fails when the model has no auth (not in getAvailable)", () => {
       const result = resolveModel("anthropic/claude-sonnet-4-6", makeRegistry(MODELS, [MODELS[0]]));
       expect(result).toContain("Model not found");
-      expect(result).toContain("Available models:\n  anthropic/claude-opus-4-6");
+      expect(result).toContain("Closest available models:\n  anthropic/claude-opus-4-6");
+    });
+  });
+
+  describe("unscoped errors suggest instead of listing everything", () => {
+    it("puts another provider's copy of the model first, without using it", () => {
+      const gatewayHaiku = { id: "anthropic/claude-haiku-4.5", name: "Claude Haiku 4.5", provider: "openrouter" };
+      const result = resolveModel("anthropic/claude-haiku-4-5", makeRegistry([...MODELS, gatewayHaiku]));
+      expect(result).toContain("Closest available models:\n  openrouter/anthropic/claude-haiku-4.5\n");
+    });
+
+    it("suggests a typo's model family", () => {
+      const result = resolveModel("anthropic/claude-sonet-4-6", makeRegistry());
+      expect(result).toContain("  anthropic/claude-sonnet-4-6");
+      expect(result).not.toContain("openai/gpt-4o");
+    });
+
+    it("caps the suggestions at five", () => {
+      const many = Array.from({ length: 20 }, (_, i) => ({ id: `claude-haiku-${i}`, name: "Haiku", provider: "p" }));
+      const result = resolveModel("haiku", makeRegistry(many));
+      expect(result.split("\n  ").length - 1).toBe(5);
+    });
+
+    it("says so when nothing is close", () => {
+      expect(resolveModel("zzz/qqq", makeRegistry())).toContain("No close matches among 5 available models.");
     });
   });
 
@@ -68,8 +92,7 @@ describe("resolveModel", () => {
     it("refuses a short name when there is no scope", () => {
       const result = resolveModel("haiku", makeRegistry());
       expect(result).toContain('"haiku" is not a provider/modelId');
-      expect(result).toContain("Available models:");
-      expect(result).toContain("anthropic/claude-haiku-4-5-20251001");
+      expect(result).toContain("Closest available models:\n  anthropic/claude-haiku-4-5-20251001");
     });
 
     it("only considers scoped models", () => {
