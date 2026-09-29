@@ -256,6 +256,15 @@ describe("resolveModel", () => {
       expect(result).toContain("Model not found");
     });
   });
+
+  describe("model without a name", () => {
+    it("fuzzy-matches by id instead of crashing", () => {
+      // Extension-registered providers can omit `name`; pi doesn't default it.
+      const nameless = { id: "local-coder-7b", provider: "ollama" } as (typeof MODELS)[number];
+      const result = resolveModel("coder", makeRegistry([...MODELS, nameless]));
+      expect(result).toEqual(nameless);
+    });
+  });
 });
 
 describe("describeModel", () => {

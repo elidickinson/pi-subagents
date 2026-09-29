@@ -4,7 +4,7 @@
 
 export interface ModelEntry {
   id: string;
-  name: string;
+  name?: string;
   provider: string;
 }
 
@@ -68,7 +68,7 @@ export function resolveModel(
 
   for (const m of all) {
     const id = normalize(m.id);
-    const name = normalize(m.name);
+    const name = normalize(m.name ?? "");
     const full = normalize(`${m.provider}/${m.id}`);
 
     let score = 0;
