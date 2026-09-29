@@ -37,7 +37,7 @@ import { SubagentScheduler } from "./schedule.js";
 import { resolveStorePath, ScheduleStore } from "./schedule-store.js";
 import { applyAndEmitLoaded, loadSettings, type SubagentsSettings, saveAndEmitChanged, type ToolDescriptionMode } from "./settings.js";
 import { getForegroundOutcomeNote, getStatusNote, partialOutputSuffix } from "./status-note.js";
-import { type AgentConfig, type AgentInvocation, type AgentMentionMode, type AgentRecord, type JoinMode, type NotificationDetails, type SubagentType, type ViewerMarkdownMode, type WidgetMode } from "./types.js";
+import { type AgentConfig, type AgentInvocation, type AgentMentionMode, type AgentMessageDetails, type AgentRecord, type JoinMode, type NotificationDetails, type SubagentType, type ViewerMarkdownMode, type WidgetMode } from "./types.js";
 import { createMentionProvider, mentionRoster, type TypeInfo } from "./ui/agent-mention.js";
 import {
   type AgentActivity,
@@ -369,6 +369,15 @@ export default function (pi: ExtensionAPI) {
       return new Text(rendered.join("\n"), 0, 0);
     }
   );
+
+  // ---- Mid-run message from a subagent (send_message) ----
+  pi.registerMessageRenderer<AgentMessageDetails>("subagent-message", (message, _options, theme) => {
+    const d = message.details;
+    if (!d) return undefined;
+    const header = `${theme.fg("accent", "✉")} ${theme.bold(d.agentType)} ${theme.fg("dim", `${d.agentId} · still running`)}`;
+    const body = d.message.split("\n").map(l => `  ${l}`).join("\n");
+    return new Text(`${header}\n${body}`, 0, 0);
+  });
 
   // ---- Workflow run rendered as a session entry ----
   // A workflow launched from the CLI flag has no tool call to hang its result

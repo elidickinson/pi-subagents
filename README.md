@@ -481,7 +481,7 @@ Cancelling a `wait: true` call (for example, with `Esc`) stops only the wait. Th
 
 ### `send_message` (subagent tool)
 
-A running subagent can send a fire-and-forget message to the main agent without stopping its work. The message arrives as a follow-up in the main conversation; the main agent can reply to a top-level agent with `steer_subagent`. Nested and workflow agents also message the main conversation, not their immediate caller; their owners must handle any reply.
+A running subagent can send a fire-and-forget message to the main agent without stopping its work. The message arrives in the main conversation as an agent message (like a completion notification, not a user message) and wakes the main agent; the main agent can reply to a top-level agent with `steer_subagent`. Nested and workflow agents also message the main conversation, not their immediate caller; their owners must handle any reply.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|

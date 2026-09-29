@@ -31,7 +31,7 @@ import { createNestedSubagentTools, getMaxSubagentDepth, type NestedAgentManager
 import { buildAgentPrompt, type PromptExtras } from "./prompts.js";
 import { preloadSkills } from "./skill-loader.js";
 import { createStructuredCapture, createStructuredOutputTool, structuredRetryPrompt } from "./structured-output.js";
-import type { SubagentType, ThinkingLevel } from "./types.js";
+import type { AgentMessageDetails, SubagentType, ThinkingLevel } from "./types.js";
 import type { LifetimeUsage } from "./usage.js";
 import type { CompiledSchema } from "./workflow/json-schema.js";
 
@@ -854,15 +854,23 @@ export async function runAgent(
     : [];
   const nestedToolNames = new Set(nestedTools.map(tool => tool.name));
 
-  const messageTool = options.agentId && !disallowedSet?.has("send_message")
+  const { agentId } = options;
+  const messageTool = agentId && !disallowedSet?.has("send_message")
     ? [defineTool({
         name: "send_message",
         label: "Send Message",
-        description: "Send a fire-and-forget message to the main agent while you continue working. The main agent can reply by steering you. Use for early findings, status updates, or blockers; do not use excessively.",
+        description: "Send a short message to the main agent while you keep working. Use it only for things the main agent should know now, like an important early finding or a blocker. Don't wait for a reply; if one comes, it arrives as a new message. Your final answer still goes in your last response, not here.",
         parameters: Type.Object({ message: Type.String({ description: "Message to send to the main agent" }) }),
         execute: async (_id, params) => {
-          options.pi.sendUserMessage(`Message from agent ${options.agentId} (${type}):\n\n${params.message}`, { deliverAs: "followUp" });
-          return { content: [{ type: "text", text: "Message sent to parent." }], details: {} };
+          // Its own message type, like the completion notification — a user
+          // message would put the subagent's words in the user's mouth.
+          options.pi.sendMessage<AgentMessageDetails>({
+            customType: "subagent-message",
+            content: `Message from agent ${agentId} (${type}), still running:\n\n${params.message}`,
+            display: true,
+            details: { agentId, agentType: type, message: params.message },
+          }, { deliverAs: "followUp", triggerTurn: true });
+          return { content: [{ type: "text", text: "Message sent to the main agent." }], details: {} };
         },
       })]
     : [];

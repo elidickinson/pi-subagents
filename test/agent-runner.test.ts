@@ -221,17 +221,23 @@ describe("send_message", () => {
   it("delivers a mid-run message to the main agent and remains available with extensions loaded", async () => {
     vi.mocked(getConfig).mockReturnValueOnce(makeConfig({ extensions: true }));
     vi.mocked(getAgentConfig).mockReturnValueOnce(makeAgentConfig({ extensions: true }));
-    const sendUserMessage = vi.fn();
+    const sendMessage = vi.fn();
     const { session } = createSession("still working");
     createAgentSession.mockResolvedValue({ session });
 
-    await runAgent(ctx, "Explore", "go", { pi: { sendUserMessage }, agentId: "agent-123" });
+    await runAgent(ctx, "Explore", "go", { pi: { sendMessage }, agentId: "agent-123" });
     expect(lastToolsPassed()).toContain("send_message");
     expect(await customTool("send_message").execute("call-1", { message: "Found a blocker" }))
-      .toMatchObject({ content: [{ text: "Message sent to parent." }] });
-    expect(sendUserMessage).toHaveBeenCalledWith(
-      "Message from agent agent-123 (Explore):\n\nFound a blocker",
-      { deliverAs: "followUp" },
+      .toMatchObject({ content: [{ text: "Message sent to the main agent." }] });
+    // An agent message, not a user message: the main agent must not read it as the user's words.
+    expect(sendMessage).toHaveBeenCalledWith(
+      {
+        customType: "subagent-message",
+        content: "Message from agent agent-123 (Explore), still running:\n\nFound a blocker",
+        display: true,
+        details: { agentId: "agent-123", agentType: "Explore", message: "Found a blocker" },
+      },
+      { deliverAs: "followUp", triggerTurn: true },
     );
   });
 });

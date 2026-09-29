@@ -327,6 +327,13 @@ export interface NotificationDetails {
   others?: NotificationDetails[];
 }
 
+/** Details attached to a running subagent's `send_message`, for rendering. */
+export interface AgentMessageDetails {
+  agentId: string;
+  agentType: string;
+  message: string;
+}
+
 export interface EnvInfo {
   isGitRepo: boolean;
   branch: string;
